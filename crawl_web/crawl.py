@@ -9,21 +9,46 @@ from rapidfuzz.fuzz import partial_ratio
 import logging
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from gnews import GNews
-from crawl4ai.extraction_strategy import CosineStrategy
+# from crawl4ai.extraction_strategy import CosineStrategy
 from huggingface_hub import login
 import os
 from dotenv import load_dotenv
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+import time
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import requests
+import boto3
+from dotenv import load_dotenv
+import os
+import numpy as np 
+from selenium.common.exceptions import NoSuchElementException
+from strands import Agent, tool
+import asyncio
+import json
+from pydantic import BaseModel, Field
+from typing import List
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, LLMConfig
+from crawl4ai.extraction_strategy import LLMExtractionStrategy
+
 # Load the .env file
 load_dotenv()
-
-login(os.getenv("HF_ACCESS_TOKEN"))
-
+# login(os.getenv("HF_ACCESS_TOKEN"))
+options = Options()
+options.add_argument("--headless")
+options.add_argument("--disable-gpu")
+driver = webdriver.Chrome(options=options)  
 logger = logging.getLogger(__name__)
 google_news = GNews(language='vi', 
                     country='VN',
-                    max_results= 10,
-                    period = '1y'
+                    max_results=10,
+                    period='1y',
+                    exclude_websites=['tapchicongthuong.vn', 'tuoitre.vn', 'theleader.vn', 'vnexpress.net']
+                    
                     )
+
 def is_matching_company(expected_name, extracted_name, threshold=85):
     try:
         if not (expected_name and extracted_name):
@@ -122,7 +147,6 @@ def search_web(text: str, limit: int, domain: str = None) -> list:
 
     return filtered_results
 
-
 async def crawl_company_info_app(url: str):
     """
     Crawl company information from a given URL using AsyncWebCrawler.
@@ -147,8 +171,7 @@ async def crawl_company_info_app(url: str):
         logger.error("Failed to crawl URL '%s': %s", url, str(e))
         return None
 
-
-async def fetch_company_info(company_name: str):
+async def _fetch_company_info(company_name: str):
     """
     Fetch and return company info by searching and crawling masothue.com.
     
@@ -182,6 +205,9 @@ async def fetch_company_info(company_name: str):
             continue
     return None
 
+@tool
+def fetch_company_info(company_name: str):
+    return asyncio.run(_fetch_company_info(company_name))
 
 async def crawl_company_person_app(company_name, url):
     js_click_tab = ["document.querySelector('#lsTab3CT')?.click();"]
@@ -189,7 +215,6 @@ async def crawl_company_person_app(company_name, url):
     # Step 1: Extract general company info
     config1 = CrawlerRunConfig(
         extraction_strategy=company_name_extractor,
-        wait_until="networkidle"
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -207,7 +232,6 @@ async def crawl_company_person_app(company_name, url):
     config2 = CrawlerRunConfig(
         js_code=js_click_tab,
         extraction_strategy=company_person_extractor,
-        wait_until="networkidle"
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -217,8 +241,9 @@ async def crawl_company_person_app(company_name, url):
 
     return data
 
-async def fetch_company_person(company_name):
-    results = search_web(f"{company_name} cafef", 5, domain='cafef.vn')
+
+async def _fetch_company_person(company_name):
+    results = search_web(f"{company_name} cafef", 1, domain='cafef.vn')
     for result in results:
         try:
             output = await crawl_company_person_app(company_name, result)
@@ -227,11 +252,13 @@ async def fetch_company_person(company_name):
             print(f"Error crawling {result}: {e}")
     return None
 
+@tool
+def fetch_company_person(company_name: str):
+    return asyncio.run(_fetch_company_person(company_name))
 
 company_news_schema = {
     "name": "article_content",
     "baseSelector": "div.post_content",
-    "type":"group",
     "fields": [
         {
             "name": "text_content",
@@ -242,32 +269,94 @@ company_news_schema = {
 }
 
 company_news_extractor = JsonCssExtractionStrategy(company_news_schema)
+@tool
+def crawl_web_content(url):
+    driver.get(url)
 
-async def fetch_company_news(company_name):
-    
-    strategy = CosineStrategy(
-        semantic_filter=company_name,    # Target content type
-        word_count_threshold=100,             # Minimum words per cluster
-        sim_threshold=0,                    # Similarity threshold
-        top_k = 3
-    )
-    urls = google_news.get_news(company_name)
-
-    config = CrawlerRunConfig(
-        # extraction_strategy = company_news_extractor,
-        # css_selector = "#post_content"
-    )
-    
-    async with AsyncWebCrawler() as crawler:
-        result = await crawler.arun(
-            url = urls[0]['url'], config = config
+    try:
+        # Wait up to 10 seconds for the article link with rel="noopener noreferrer" to appear
+        wait = WebDriverWait(driver, 10)
+        external_link = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]'))
         )
-        print(result.extracted_content)
+        try:
+            title = driver.find_element(By.CSS_SELECTOR, ".post-title, .detail-title, .detail-title-top, .title-detail, .content-detail")
+        except NoSuchElementException:
+            title = None
+            print("Title element not found.")
+
+        try:
+            content = driver.find_element(By.CSS_SELECTOR, ".post_content, #explus-editor, .detail__cmain-main, #maincontent")
+        except NoSuchElementException:
+            content = None
+            print("Content element not found.")
+        print(content.text)
+        # driver.quit()
+        return f"""
+Title: {title.text}
+Content:
+{content.text}
+    """
         
-    return result
+    except Exception as e:
+        print("❌ Couldn't find real article link:", e)
+        # driver.quit()
+        return None
+    finally:
+        driver.quit()
+
+def generate_single_embedding(text):
+    session = boto3.Session(
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+    aws_secret_access_key= os.getenv("AWS_SECRET_KEY"),
+    region_name="us-east-1"
+)
+    client = session.client("bedrock-runtime")
+    body = json.dumps({
+        "inputText": text
+    })
+    response = client.invoke_model(
+        modelId="amazon.titan-embed-text-v2:0",
+        contentType="application/json",
+        accept="application/json",
+        body=body
+    )
+    response_body = json.loads(response['body'].read())
+    return response_body["embedding"]
+    
+def cosine_similarity(vec1, vec2):
+    vec1 = np.array(vec1)
+    vec2 = np.array(vec2)
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+exclude_websites = ['vnexpress.net', 'tuoitre.vn', 'theleader.vn', 'tapchicongthuong.vn']
+
+async def fetch_news(company_name):
+    query_embedded = generate_single_embedding(company_name)
+    results = google_news.get_news(company_name)
+
+    # Correct exclusion logic
+    filtered_results = [
+        article for article in results
+        if not any(domain in article['url'] for domain in exclude_websites)
+    ]
+
+    final_results = []
+    for article in filtered_results:
+        print(article['url'])
+        result = crawl_web_content(article['url'])
+        if not result:
+            continue
+        target_embedded = generate_single_embedding(result)
+        if cosine_similarity(query_embedded, target_embedded) > 0.35:
+            final_results.append(result)
+
+    return json.dumps(final_results, ensure_ascii=False, indent=2)
+
+
 
 if __name__ == "__main__":
     company_name = "Công ty Cổ phần Nhựa An Phát Xanh"
-    output = asyncio.run(fetch_company_news(company_name))
+    output = asyncio.run(fetch_news(company_name))
 
 
