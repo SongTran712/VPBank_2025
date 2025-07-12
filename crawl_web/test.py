@@ -1,63 +1,100 @@
-import asyncio
-import nest_asyncio
-nest_asyncio.apply()
+import boto3
+from strands.models import BedrockModel
+from botocore.config import Config as BotocoreConfig
+from strands import Agent
+from pydantic import BaseModel
+import dotenv
+import os
+from strands import Agent, tool
+# from toool_test import get_cty, get_tc
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+dotenv.load_dotenv(".env", override=True)
+# Create a custom boto3 session
+session = boto3.Session(
+    aws_access_key_id= os.environ.get('AWS_ACCESS_KEY'),
+    aws_secret_access_key= os.environ.get('AWS_SECRET_KEY'),
+)
+boto_config = BotocoreConfig(
+    retries={"max_attempts": 3, "mode": "standard"},
+    connect_timeout=5,
+    read_timeout=60
+)
+# Create a Bedrock model with the custom session
+bedrock_model = BedrockModel(
+    model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    boto_session=session,
+    temperature=0.3,
+    top_p=0.8,
+    stop_sequences=["###", "END"],
+    boto_client_config=boto_config,
+)
 
-def get_external_link_selenium(url):
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--headless=new")  # newer headless mode
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--log-level=3")
+from strands import Agent, tool
 
-    try:
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=chrome_options
-        )
+@tool
+def get_cty() -> str:
+    return """{"ten_cong_ty": "CÔNG TY CỔ PHẦN TẬP ĐOÀN DUA FAT",
+"ma_chung_khoan": null,
+"dia_chi_tru_so_chinh": "Số 15, Liền kề 10, Khu đô thị Xa La, P. Phúc La, Q. Hà Đông, TP Hà Nội, Việt Nam",
+"so_dien_thoai_hoac_email": null,
+"linh_vuc_kinh_doanh_chinh": "Phá dỡ các kết cấu công trình và cầu kiện xây dựng"
+}"""
 
-        driver.get(url)
-        
-        # Wait for redirection or anchor element (fallback)
-        WebDriverWait(driver, 10).until(
-            lambda d: d.current_url != url or d.find_elements(By.TAG_NAME, "a")
-        )
+@tool
+def get_tc() -> str:
+    return """{
+    "quy": "Q1/2025",
+    "tong_tai_san_cuoi_quy": 3242801930898,
+    "loi_nhuan_sau_thue": -116915411380,
+    "loi_nhuan_gop": -61372849620,
+    "von_chu_so_huu": 119953583407,
+    "tong_doanh_thu": 74478217583,
+    "tong_tai_san": 3242801930898,
+    "tong_no": 3122848347491,
+    "gia_von_hang_ban": 135851067203,
+    "loi_nhuan_gop_ve_BH_va_CCDV": -61372849620,
+    "loi_nhuan_tai_chinh": -53217597991,
+    "loi_nhuan_truoc_thue": -116888181727,
+    "tong_tai_san_luu_dong_ngan_han": 2285669507340,
+    "no_ngan_han": 2524167001622
+    }"""
+    
 
-        # If redirected, return final URL
-        if driver.current_url != url:
-            return driver.current_url
+    
+from pydantic import BaseModel
+class CtyInfo(BaseModel):
+    ten_cong_ty: str
+    linh_vuc_kinh_doanh_chinh: str
+    dia_chi_tru_so_chinh: str
+    tong_tai_san_cuoi_quy: int
+    loi_nhuan_sau_thue: int
+    loi_nhuan_gop: int
 
-        # Fallback: find external link
-        try:
-            link = driver.find_element(By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]')
-            return link.get_attribute('href')
-        except:
-            return None
+agent = Agent(model = bedrock_model, tools=[get_cty, get_tc])
 
-    except Exception as e:
-        print("Selenium error:", e)
-        return None
-    finally:
-        try:
-            driver.quit()
-        except:
-            pass
+system_prompt = """
+You are an intelligent personal assistant, specialized formatiing information about companies in Vietnam.
 
-async def resolve_actual_url(url):
-    return await asyncio.to_thread(get_external_link_selenium, url)
+You have access to the following tools:
+- get_cty: Get the general information about company.
+- get_tc: Get the financial information about company.
 
-async def test():
-    url = "https://news.google.com/rss/articles/CBMivwFBVV95cUxORFhjX25IeWtMb1dlOVNIM0R4dzl6dHJDQlJXTkoxOTZncUdRX3dXc05FOWc0b1NybzFzbkE5UlJ6dnlROTVVX0M0ZXlsaDY0Q2FOOGswYzN2cFB3ckY1a2R4M3ZKZ0JXZWJ6MkVFTWR5Q0NXV2R6MHNubXJxMGJTTTFXdnpQdFg1TTVPWFZjYzhvTFZEcFZabnJhRmlLd01VN2ZNU0dyOXcwRF9jVGVVc0FLdUQzU24zMVVoXzNUQQ?oc=5&hl=en-US&gl=US&ceid=US:en"
-    real_url = await resolve_actual_url(url)
-    print("Resolved:", real_url)
+Your task is to gather data with the following steps:
+1. Call get_cty to get general information about company
+2. Call get_tc to get general information about company
 
-if __name__ == "__main__":
-    asyncio.run(test())
+Instructions:
+- Respond in a *clear and structured format*.
+- All output must be in *Vietnamese*.
+
+"""
+
+result = agent("Hãy sử dụng tool get_cty và get_tc đê lấy dữ liệu và trích xuất dữ liệu").content
+result = agent.structured_output(CtyInfo, result)
+
+print(result.tencongty)
+print(result.linh_vuc_kinh_doanh_chinh)
+print(result.dia_chi_tru_so_chinh)
+print(result.tong_tai_san_cuoi_quy)
+print(result.loi_nhuan_sau_thue)
+print(result.loi_nhuan_gop)

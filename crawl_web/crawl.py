@@ -3,27 +3,19 @@ from crawl4ai import AsyncWebCrawler, CacheMode
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from duckduckgo_search import DDGS
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
-from pprint import pprint
 import json
 from rapidfuzz.fuzz import partial_ratio
 import logging
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from gnews import GNews
-# from crawl4ai.extraction_strategy import CosineStrategy
-from huggingface_hub import login
 import os
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-import time
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import requests
-import boto3
 import os
-import numpy as np 
-from selenium.common.exceptions import NoSuchElementException
 from strands import Agent, tool
 import asyncio
 import json
@@ -34,7 +26,7 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from dotenv import load_dotenv
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
-
+from googlesearch import search
 # Load the .env file
 load_dotenv()
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -320,7 +312,18 @@ def crawl_news(url):
     return asyncio.run(_crawl_news(url))
 
 @tool
-def get_news(news):
+def get_gg_search(info):
+    j = search(info, num_results=5, lang='vn', advanced=True)
+    results = []
+    for i in j:
+        results.append({
+            "url": i.url,
+            "description":i.description
+        })
+    return results
+
+@tool
+def get_gg_news(news):
     results = google_news.get_news(news)
     links = []
 

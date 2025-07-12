@@ -1,4 +1,4 @@
-from crawl import fetch_company_info, fetch_company_person, get_news, crawl_news
+from crawl import fetch_company_info, fetch_company_person, get_gg_news, get_gg_search, crawl_news
 import boto3
 from strands.models import BedrockModel
 from botocore.config import Config as BotocoreConfig
@@ -16,13 +16,8 @@ from selenium.webdriver.common.by import By
 import time
 from selenium.webdriver.support.ui import WebDriverWait
 from gnews import GNews
+
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
-google_news = GNews(language='vi', 
-                    country='VN',
-                    max_results=5,
-                    period='1y',
-                    
-                    )
 
 # Load the .env file
 load_dotenv()
@@ -67,7 +62,7 @@ bedrock_model = BedrockModel(
 
 system_prompt = """
 You are a helpful personal assistant, specialized in searching for, gathering, and analyzing information about companies.
-You can use fetch_company_info and fetch_company_person for basic information of company. Moreover, use the get_news for information you want to search and crawl_news to access and retrieve information from that url
+You can use fetch_company_info and fetch_company_person for basic information of company. Moreover, use the get_gg_search and get_gg_news for information you want to search and crawl_news to access and retrieve information from that url
 Your tasks is providing basic information:
 
     1. Company name
@@ -84,7 +79,21 @@ Respond clearly with structured format in Vietnamese
 
 """
 
-agent = Agent(tools = [fetch_company_info, fetch_company_person, get_news, crawl_news]
+agent = Agent(tools = [fetch_company_info, fetch_company_person, get_gg_news, get_gg_search, crawl_news]
               , model = bedrock_model, system_prompt = system_prompt)
 
 results = agent("Công ty Cổ phần Nhựa An Phát Xanh")
+output = results.message.get('content','')[0].get('text','')
+class CompanyBasicInfo(BaseModel):
+    name: str
+    tax_number: int
+    industry: str
+    leadership: str
+    main_product: str
+structured_agent = Agent(model= bedrock_model)
+final_result = structured_agent.structured_output(CompanyBasicInfo, output)
+print(final_result.name)
+print(final_result.tax_number)
+print(final_result.industry)
+print(final_result.leadership)
+print(final_result.main_product)
