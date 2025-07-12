@@ -21,7 +21,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import requests
 import boto3
-from dotenv import load_dotenv
 import os
 import numpy as np 
 from selenium.common.exceptions import NoSuchElementException
@@ -32,20 +31,28 @@ from pydantic import BaseModel, Field
 from typing import List
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, LLMConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
+from dotenv import load_dotenv
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 
 # Load the .env file
 load_dotenv()
-# login(os.getenv("HF_ACCESS_TOKEN"))
-options = Options()
-options.add_argument("--headless")
-options.add_argument("--disable-gpu")
-driver = webdriver.Chrome(options=options)  
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
+chrome_options = webdriver.ChromeOptions()
+chrome_options.add_argument("--headless=new")  # newer headless mode
+chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--disable-software-rasterizer")
+chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--log-level=3")
+
 logger = logging.getLogger(__name__)
 google_news = GNews(language='vi', 
                     country='VN',
-                    max_results=10,
+                    max_results=5,
                     period='1y',
-                    exclude_websites=['tapchicongthuong.vn', 'tuoitre.vn', 'theleader.vn', 'vnexpress.net']
                     
                     )
 
@@ -256,107 +263,119 @@ async def _fetch_company_person(company_name):
 def fetch_company_person(company_name: str):
     return asyncio.run(_fetch_company_person(company_name))
 
-company_news_schema = {
-    "name": "article_content",
-    "baseSelector": "div.post_content",
-    "fields": [
-        {
-            "name": "text_content",
-            "selector": "p",
-            "type": "text"
-        }
-    ]
-}
+class Crawler(BaseModel):
+    title: str
+    content: str
 
-company_news_extractor = JsonCssExtractionStrategy(company_news_schema)
+
+async def _crawl_news(url):
+    # 1. Define the LLM extraction strategy
+    llm_strategy = LLMExtractionStrategy(
+        llm_config = LLMConfig(provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")),
+        schema=Crawler.model_json_schema(), # Or use model_json_schema()
+        extraction_type="schema",
+        instruction="""
+Extract only the title and main content of the article in plain Markdown.
+
+- title: The main title of the article.
+- content: The full readable body of the article, excluding ads, navigation bars, and comments.
+
+Exclude sidebars, ads, and any unrelated content. Return a clean JSON with only `title` and `content` fields.
+"""
+,
+        # chunk_token_threshold=1000,
+        # overlap_rate=0.0,
+        apply_chunking=False,
+        input_format="markdown",   # or "html", "fit_markdown"
+        # extra_args={"temperature": 0.0, "max_tokens": 400}
+    )
+
+    # 2. Build the crawler config
+    crawl_config = CrawlerRunConfig(
+        extraction_strategy=llm_strategy,
+        cache_mode=CacheMode.BYPASS
+    )
+
+    # 3. Create a browser config if needed
+    browser_cfg = BrowserConfig(headless=True)
+
+    async with AsyncWebCrawler(config=browser_cfg) as crawler:
+        # 4. Let's say we want to crawl a single page
+        result = await crawler.arun(
+            url=url,
+            config=crawl_config
+        )
+
+        if result.success:
+            # 5. The extracted content is presumably JSON
+            data = json.loads(result.extracted_content)
+            return data
+
+        else:
+            print("Error:", result.error_message)
+            return None
+        
 @tool
-def crawl_web_content(url):
-    driver.get(url)
+def crawl_news(url):
+    return asyncio.run(_crawl_news(url))
+
+@tool
+def get_news(news):
+    results = google_news.get_news(news)
+    links = []
+
+    # Setup Chrome only once
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
     try:
-        # Wait up to 10 seconds for the article link with rel="noopener noreferrer" to appear
-        wait = WebDriverWait(driver, 10)
-        external_link = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]'))
-        )
-        try:
-            title = driver.find_element(By.CSS_SELECTOR, ".post-title, .detail-title, .detail-title-top, .title-detail, .content-detail")
-        except NoSuchElementException:
-            title = None
-            print("Title element not found.")
+        for article in results:
+            url = article.get('url')
+            description = article.get('description')
+            if not url:
+                continue
 
-        try:
-            content = driver.find_element(By.CSS_SELECTOR, ".post_content, #explus-editor, .detail__cmain-main, #maincontent")
-        except NoSuchElementException:
-            content = None
-            print("Content element not found.")
-        print(content.text)
-        # driver.quit()
-        return f"""
-Title: {title.text}
-Content:
-{content.text}
-    """
-        
-    except Exception as e:
-        print("❌ Couldn't find real article link:", e)
-        # driver.quit()
-        return None
+            try:
+                driver.get(url)
+
+                # Wait for potential redirection or anchor element
+                WebDriverWait(driver, 10).until(
+                    lambda d: d.current_url != url or d.find_elements(By.TAG_NAME, "a")
+                )
+
+                # Handle redirection
+                final_url = driver.current_url
+                if final_url != url:
+                    links.append(final_url)
+                    continue
+
+                # Try to extract external link
+                try:
+                    link_element = driver.find_element(By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]')
+                    href = link_element.get_attribute("href")
+                    if href:
+                        links.append(
+                            {
+                                "url": href,
+                                "description": description
+                            }
+                        )
+                except Exception as e:
+                    print(f"No external link found for {url}: {e}")
+                    continue
+
+            except Exception as e:
+                print(f"Error processing URL {url}: {e}")
+                continue
+
     finally:
         driver.quit()
 
-def generate_single_embedding(text):
-    session = boto3.Session(
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
-    aws_secret_access_key= os.getenv("AWS_SECRET_KEY"),
-    region_name="us-east-1"
-)
-    client = session.client("bedrock-runtime")
-    body = json.dumps({
-        "inputText": text
-    })
-    response = client.invoke_model(
-        modelId="amazon.titan-embed-text-v2:0",
-        contentType="application/json",
-        accept="application/json",
-        body=body
-    )
-    response_body = json.loads(response['body'].read())
-    return response_body["embedding"]
-    
-def cosine_similarity(vec1, vec2):
-    vec1 = np.array(vec1)
-    vec2 = np.array(vec2)
-    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
-
-exclude_websites = ['vnexpress.net', 'tuoitre.vn', 'theleader.vn', 'tapchicongthuong.vn']
-
-async def fetch_news(company_name):
-    query_embedded = generate_single_embedding(company_name)
-    results = google_news.get_news(company_name)
-
-    # Correct exclusion logic
-    filtered_results = [
-        article for article in results
-        if not any(domain in article['url'] for domain in exclude_websites)
-    ]
-
-    final_results = []
-    for article in filtered_results:
-        print(article['url'])
-        result = crawl_web_content(article['url'])
-        if not result:
-            continue
-        target_embedded = generate_single_embedding(result)
-        if cosine_similarity(query_embedded, target_embedded) > 0.35:
-            final_results.append(result)
-
-    return json.dumps(final_results, ensure_ascii=False, indent=2)
-
-
+    return links
 
 if __name__ == "__main__":
     company_name = "Công ty Cổ phần Nhựa An Phát Xanh"
-    output = asyncio.run(fetch_news(company_name))
-
+    output = fetch_news(company_name)
+    print(output)
 
