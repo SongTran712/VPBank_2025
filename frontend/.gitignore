@@ -1,0 +1,39 @@
+# dependencies
+/node_modules
+
+# production
+/build
+
+# testing
+/coverage
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# optional: macOS, Linux, Windows system files
+Thumbs.db
+ehthumbs.db
+*.bak
+*.swp
+*~
+
+# eslint cache
+.eslintcache
