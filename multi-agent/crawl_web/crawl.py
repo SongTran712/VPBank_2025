@@ -27,7 +27,8 @@ from dotenv import load_dotenv
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from googlesearch import search
-# Load the .env file
+
+
 load_dotenv()
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
@@ -62,7 +63,7 @@ def is_matching_company(expected_name, extracted_name, threshold=85):
         logger.error("Error comparing '%s' and '%s': %s", expected_name, extracted_name, str(e))
         return False
 
-browser_config = BrowserConfig(headless = True, viewport_width = 1280, viewport_height = 720)
+browser_config = BrowserConfig(headless = False, viewport_width = 1280, viewport_height = 720)
 company_info_schema ={
     "name": "company_info",
     "baseSelector": "tr", 
@@ -117,7 +118,16 @@ company_person_schema = {
             ]
         }
 company_person_extractor = JsonCssExtractionStrategy(company_person_schema)
-
+@tool
+def get_gg_search(info, search_num = 5):
+    j = search(info, num_results=search_num, lang='vn', advanced=True)
+    results = []
+    for i in j:
+        results.append({
+            "url": i.url,
+            "description":i.description
+        })
+    return results
 
 def search_web(text: str, limit: int, domain: str = None) -> list:
     """
@@ -131,6 +141,7 @@ def search_web(text: str, limit: int, domain: str = None) -> list:
     Returns:
         list: Filtered list of result URLs.
     """
+    
     filtered_results = []
     
     try:
@@ -145,7 +156,10 @@ def search_web(text: str, limit: int, domain: str = None) -> list:
         logger.error("Error during web search for '%s': %s", text, str(e))
 
     return filtered_results
+async def wait_before_extract(page):
+    await asyncio.sleep(1)  # wait 1 second
 
+# base_wait = """js:() => new Promise(resolve => setTimeout(resolve, 3000))"""
 async def crawl_company_info_app(url: str):
     """
     Crawl company information from a given URL using AsyncWebCrawler.
@@ -158,18 +172,24 @@ async def crawl_company_info_app(url: str):
     """
     run_config = CrawlerRunConfig(
         extraction_strategy=company_info_extraction,
-        cache_mode=CacheMode.BYPASS
+        cache_mode=CacheMode.BYPASS,
+        delay_before_return_html = 3.0,
+        check_robots_txt = True,
+        verbose = True
+
     )
 
     try:
         async with AsyncWebCrawler(config=browser_config) as crawler:
-            result = await crawler.arun(url=url, config=run_config)
+            result = await crawler.arun(url=url, config=run_config,)
+
             return result
 
     except Exception as e:
+        print(e)
         logger.error("Failed to crawl URL '%s': %s", url, str(e))
         return None
-
+from collections import defaultdict
 async def _fetch_company_info(company_name: str):
     """
     Fetch and return company info by searching and crawling masothue.com.
@@ -180,23 +200,29 @@ async def _fetch_company_info(company_name: str):
     Returns:
         dict or None: Flattened company info if matched, else None.
     """
-    results = search_web(f"{company_name} mã số thuế", 5, domain='masothue.com')
-
+    results = search_web(f"{company_name} mã số thuế", 3, domain='masothue.com')
     for result in results:
         try:
             output = await crawl_company_info_app(result)
             if not output or not output.extracted_content:
                 continue
-
             data = json.loads(output.extracted_content)
 
-            flat_data = {}
+            # Collect duplicate keys properly
+            flat_data = defaultdict(list)
             for entry in data:
-                flat_data.update(entry)
+                for key, value in entry.items():
+                    flat_data[key].append(value)
 
-            extracted_name = flat_data.get('company_name', '').strip()
+            # Simplify single-value keys
+            final_data = {
+                k: v[0] if len(v) == 1 else v
+                for k, v in flat_data.items()
+            }
+
+            extracted_name = final_data.get('company_name', '').strip()
             if extracted_name and is_matching_company(company_name, extracted_name):
-                return flat_data
+                return str(output.extracted_content)
 
         except Exception as e:
             logger.error(f"Error crawling {result}: {e}", exc_info=True)
@@ -218,16 +244,22 @@ async def crawl_company_person_app(company_name, url):
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         result1 = await crawler.arun(url=url, config=config1)
-        data = json.loads(result1.extracted_content)
+        
+        try:
+            data = json.loads(result1.extracted_content)
+        except Exception as e:
+            print(f"Failed to parse company name JSON: {e}")
+            return None
+
         flat_data = {}
         for entry in data:
             flat_data.update(entry)
-        crawl_company_name = flat_data.get('company_name', '')
-        
-    if not is_matching_company(crawl_company_name, company_name):
-        return None
 
-    # Step 2: Click and extract people info
+        crawl_company_name = flat_data.get('company_name', '')
+        print(f"Crawled company name: {crawl_company_name}")
+
+
+    # Step 2: Click on the correct tab and extract people info
     config2 = CrawlerRunConfig(
         js_code=js_click_tab,
         extraction_strategy=company_person_extractor,
@@ -235,18 +267,24 @@ async def crawl_company_person_app(company_name, url):
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         result2 = await crawler.arun(url=url, config=config2)
-        data = json.loads(result2.extracted_content)
-    
+
+        try:
+            data = json.loads(result2.extracted_content)
+        except Exception as e:
+            print(f"Failed to parse person info JSON: {e}")
+            return None
 
     return data
 
 
 async def _fetch_company_person(company_name):
-    results = search_web(f"{company_name} cafef", 1, domain='cafef.vn')
+    results = get_gg_search(f"{company_name} cafef", 3)
+    print(results)
     for result in results:
         try:
-            output = await crawl_company_person_app(company_name, result)
-            return output
+            output = await crawl_company_person_app(company_name, result.get('url',''))
+            if output:
+                return output
         except Exception as e:
             print(f"Error crawling {result}: {e}")
     return None
@@ -311,16 +349,7 @@ Exclude sidebars, ads, and any unrelated content. Return a clean JSON with only 
 def crawl_news(url):
     return asyncio.run(_crawl_news(url))
 
-@tool
-def get_gg_search(info):
-    j = search(info, num_results=5, lang='vn', advanced=True)
-    results = []
-    for i in j:
-        results.append({
-            "url": i.url,
-            "description":i.description
-        })
-    return results
+
 
 @tool
 def get_gg_news(news):
@@ -378,7 +407,6 @@ def get_gg_news(news):
     return links
 
 if __name__ == "__main__":
-    company_name = "Công ty Cổ phần Nhựa An Phát Xanh"
-    output = fetch_news(company_name)
-    print(output)
+    company_name = "CÔNG TY CỔ PHẦN VIMC LOGISTICS"
+    print(fetch_company_person(company_name))
 

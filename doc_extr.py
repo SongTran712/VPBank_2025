@@ -12,7 +12,7 @@ dotenv.load_dotenv(".env", override=True)
 session = boto3.Session(
     aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key= os.environ.get('AWS_SECRET_ACCESS_KEY'),
-    region_name= os.environ.get('AWS_REGION')
+    region_name= 'ap-southeast-1'
 )
 client = session.client("bedrock-runtime")
 
@@ -76,7 +76,7 @@ def get_fina_info(folder_path: str):
         }
         # === Gửi tới Claude ===
         response = client.invoke_model(
-            modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',
+            modelId='anthropic.claude-sonnet-4-20250514-v1:0',
             contentType='application/json',
             accept='application/json',
             body=json.dumps(payload)
@@ -173,9 +173,7 @@ def doc_extr(folder_path):
     # Merge them into one dictionary
     final_data = {**result, **result2}
 
-    # Save to a single JSON file
-    with open("final_output.json", "w", encoding="utf-8") as f:
-        json.dump(final_data, f, indent=2, ensure_ascii=False)
+    return final_data
 
 
 pdf_dir = "./pdf/vlg/"

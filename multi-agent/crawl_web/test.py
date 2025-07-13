@@ -89,7 +89,7 @@ Instructions:
 
 """
 
-result = agent("Hãy sử dụng tool get_cty và get_tc đê lấy dữ liệu và trích xuất dữ liệu").content
+result = agent("Hãy sử dụng tool get_cty và get_tc đê lấy dữ liệu và trích xuất dữ liệu")
 result = agent.structured_output(CtyInfo, result)
 
 print(result.tencongty)
