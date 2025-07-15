@@ -36,7 +36,9 @@ def generate_quickchart_configs(chart_list):
         quarters = chart["quarters"]
         metrics = chart["labels"]
         data = chart["data"]
-
+        # print(quarters)
+        # print(metrics)
+        # print(data)
         line_datasets = []
         bar_datasets = []
 
@@ -155,7 +157,6 @@ def compute_cal(data):
         
 def transform(datas):
     label_mapping = {
-        # stat
         'tong_tai_san': 'Tổng tài sản',
         'von_chu_so_huu': 'Vốn chủ sở hữu',
         'tong_doanh_thu': 'Tổng doanh thu',
@@ -164,8 +165,6 @@ def transform(datas):
         'loi_nhuan_sau_thue': 'Lợi nhuận sau thuế',
         'loi_nhuan_gop': 'Lợi nhuận gộp',
         'loi_nhuan_truoc_thue': 'Lợi nhuận trước thuế',
-
-        # cal
         'ROA - Tỷ suất sinh lời trên tài sản': 'Tỷ suất sinh lời tài sản (ROA)',
         'ROE - Tỷ suất sinh lời trên vốn chủ': 'Tỷ suất sinh lời vốn chủ (ROE)',
         'ROS - Tỷ suất sinh lời trên doanh thu': 'Tỷ suất sinh lời doanh thu (ROS)',
@@ -181,49 +180,49 @@ def transform(datas):
     chart_list = {
         'Tài sản và hiệu quả sinh lời': {
             'quarters': [],
-            'labels': ['tong_tai_san', 'loi_nhuan_sau_thue', 'ROA - Tỷ suất sinh lời trên tài sản'],
+            'labels': ['Tổng tài sản', 'Lợi nhuận sau thuế', 'Tỷ suất sinh lời tài sản (ROA)'],
             'chart_type': 'mix',
             'data': {}
         },
         'Vốn chủ sở hữu và khả năng sinh lời': {
             'quarters': [],
-            'labels': ['von_chu_so_huu', 'loi_nhuan_sau_thue', 'ROE - Tỷ suất sinh lời trên vốn chủ'],
+            'labels': ['Vốn chủ sở hữu', 'Lợi nhuận sau thuế', 'Tỷ suất sinh lời vốn chủ (ROE)'],
             'chart_type': 'mix',
             'data': {}
         },
         'Doanh thu và hiệu quả': {
             'quarters': [],
-            'labels': ['tong_doanh_thu', 'loi_nhuan_sau_thue', 'ROS - Tỷ suất sinh lời trên doanh thu'],
+            'labels': ['Tổng doanh thu', 'Lợi nhuận sau thuế', 'Tỷ suất sinh lời doanh thu (ROS)'],
             'chart_type': 'mix',
             'data': {}
         },
         'Biên lợi nhuận và lợi nhuận': {
             'quarters': [],
-            'labels': ['Biên lợi nhuận gộp', 'loi_nhuan_sau_thue', 'loi_nhuan_gop'],
+            'labels': ['Biên LN gộp', 'Lợi nhuận sau thuế', 'Lợi nhuận gộp'],
             'chart_type': 'mix',
             'data': {}
         },
         'Cơ cấu tài sản nợ': {
             'quarters': [],
-            'labels': ['tong_tai_san', 'tong_no', 'Tỷ lệ nợ'],
+            'labels': ['Tổng tài sản', 'Tổng nợ', 'Tỷ lệ nợ'],
             'chart_type': 'stacked',
             'data': {}
         },
         'Phân tích lợi nhuận': {
             'quarters': [],
-            'labels': ['loi_nhuan_sau_thue', 'loi_nhuan_truoc_thue', 'loi_nhuan_gop'],
+            'labels': ['Lợi nhuận sau thuế', 'Lợi nhuận trước thuế', 'Lợi nhuận gộp'],
             'chart_type': 'bar',
             'data': {}
         },
         'Cơ cấu vốn': {
             'quarters': [],
-            'labels': ['von_chu_so_huu', 'tong_no', 'tong_tai_san'],
+            'labels': ['Vốn chủ sở hữu', 'Tổng nợ', 'Tổng tài sản'],
             'chart_type': 'stacked',
             'data': {}
         },
         'Hiệu suất và khả năng thanh toán': {
             'quarters': [],
-            'labels': ['Hiệu suất sử dụng tài sản', 'ROA - Tỷ suất sinh lời trên tài sản', 'Khả năng thanh toán hiện hành'],
+            'labels': ['Hiệu suất sử dụng tài sản', 'Tỷ suất sinh lời tài sản (ROA)', 'Hệ số thanh toán hiện hành'],
             'chart_type': 'line',
             'data': {}
         }
@@ -231,8 +230,12 @@ def transform(datas):
 
     for d in datas:
         quarter = d["quy"]
-        stat = {k: v for k, v in d.items() if k != "quy"}
-        cal = compute_cal(stat)
+        stat_raw = {k: v for k, v in d.items() if k != "quy"}
+        cal_raw = compute_cal(stat_raw)
+
+        # Convert keys to Vietnamese
+        stat = {label_mapping.get(k, k): v for k, v in stat_raw.items()}
+        cal = {label_mapping.get(k, k): v for k, v in cal_raw.items()}
 
         merged["data"]["stat"][quarter] = stat
         merged["data"]["cal"][quarter] = cal
@@ -241,10 +244,9 @@ def transform(datas):
             chart["quarters"].append(quarter)
             for label in chart["labels"]:
                 value = stat.get(label) if label in stat else cal.get(label)
-                vn_label = label_mapping.get(label, label)
-                if vn_label not in chart["data"]:
-                    chart["data"][vn_label] = []
-                chart["data"][vn_label].append(value)
+                if label not in chart["data"]:
+                    chart["data"][label] = []
+                chart["data"][label].append(value)
 
     # ---- Sort by quarter chronologically ----
     def quarter_sort_key(q):
@@ -260,12 +262,13 @@ def transform(datas):
     # Reorder chart data
     for chart in chart_list.values():
         chart["quarters"] = sorted(chart["quarters"], key=quarter_sort_key)
-        for label in list(chart["data"].keys()):
+        for label in chart["data"]:
             zipped = list(zip(chart["quarters"], chart["data"][label]))
             zipped.sort(key=lambda x: quarter_sort_key(x[0]))
             chart["data"][label] = [v for _, v in zipped]
 
     return merged, chart_list
+
 
 
 
@@ -280,6 +283,7 @@ def save_charts_with_quickchart(chart_configs, output_dir):
     
 
     for name, config in chart_configs.items():
+        # print(config)
         qc = QuickChart()
         qc.width = 800
         qc.height = 500
@@ -418,10 +422,12 @@ def table_for_report(data:dict, output_dir:str):
             fig, ax = plt.subplots(figsize=(12, len(df.columns)*0.5 + 2))
             ax.axis('off')
             table = ax.table(cellText=df.round(2).values, colLabels=df.columns, rowLabels=df.index, loc='center')
-            table.auto_set_font_size(False)
-            table.set_fontsize(9)
-            table.scale(1.2, 1.2)
-            ax.set_title(title, fontweight='bold')
+            table.auto_set_font_size(True)
+            # table.set_fontsize(9)
+            table.scale(1.2, 1.75)
+            fig.suptitle(title, fontsize=14, fontweight='bold', y=1.02)  # y>1 pushes above
+            fig.tight_layout()
+            fig.subplots_adjust(top=0.43) 
             return fig
         stat_df=stat_df.T
         cal_df=cal_df.T
@@ -431,8 +437,8 @@ def table_for_report(data:dict, output_dir:str):
         stat_fig.tight_layout()
         cal_fig.tight_layout()
         try:
-            stat_fig.to_json(f"{output_dir}/stat_table.json", force_ascii=False, indent=2)
-            cal_fig.to_json(f"{output_dir}/cal_fig.json", force_ascii=False, indent=2)
+            stat_fig.savefig(f"{output_dir}/Bảng tài chính tổng hơp.png", dpi=300, bbox_inches='tight')
+            cal_fig.savefig(f"{output_dir}/Bảng hiệu quả tài chính.png", dpi=300, bbox_inches='tight')
             print('Saved image tables')
         except Exception as e:
             print(f'Error: {e}')
@@ -458,12 +464,12 @@ def analyze_financial_data(quarterly_data: list):
 
     # Step 2: Transform to chart data
     transformed, chart_list = transform(enriched_data)
-    print(transformed)
+    # print(transformed)
     # Step 3: Generate chart configs and images
     chart_configs = generate_quickchart_configs(chart_list)
     output_dir = "charts"
     save_charts_with_quickchart(chart_configs, output_dir)
-
+    table_for_report(transformed,output_dir)
     # Step 4: Get base64 images & captions
     images = images_as_base64_blocks_from_local(output_dir)
     captions = get_chart_context(images)
