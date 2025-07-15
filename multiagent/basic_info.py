@@ -17,7 +17,7 @@ from selenium.webdriver.common.by import By
 import time
 from selenium.webdriver.support.ui import WebDriverWait
 from gnews import GNews
-from . import crawl
+import crawl
 
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
 
@@ -44,6 +44,7 @@ class CompanyInfoRetriever:
         self.session = boto3.Session(
             aws_access_key_id=AWS_ACCESS_KEY,
             aws_secret_access_key=AWS_SECRET_KEY,
+            region_name = 'ap-southeast-1'
         )
 
         self.boto_config = BotocoreConfig(
@@ -53,12 +54,12 @@ class CompanyInfoRetriever:
         )
 
         self.model = BedrockModel(
-            model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+            model_id="arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
             boto_session=self.session,
             temperature=0.3,
             top_p=0.8,
             stop_sequences=["###", "END"],
-            boto_client_config=self.boto_config,
+            # boto_client_config=self.boto_config,
         )
 
         self.system_prompt = """

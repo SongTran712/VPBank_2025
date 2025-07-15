@@ -44,7 +44,7 @@ chrome_options.add_argument("--log-level=3")
 logger = logging.getLogger(__name__)
 google_news = GNews(language='vi', 
                     country='VN',
-                    max_results=5,
+                    max_results=3,
                     period='1y',
                     
                     )
@@ -119,7 +119,7 @@ company_person_schema = {
         }
 company_person_extractor = JsonCssExtractionStrategy(company_person_schema)
 @tool
-def get_gg_search(info, search_num = 1):
+def get_gg_search(info, search_num = 3):
     j = search(info, num_results=search_num, lang='vn', advanced=True)
     results = []
     for i in j:
@@ -160,9 +160,9 @@ async def wait_before_extract(page):
     await asyncio.sleep(1)  # wait 1 second
 
 # base_wait = """js:() => new Promise(resolve => setTimeout(resolve, 3000))"""
-async def crawl_company_info_app(url: str):
+async def crawl_company_info_app(url: str, max_retries=3, retry_delay=2):
     """
-    Crawl company information from a given URL using AsyncWebCrawler.
+    Crawl company information from a given URL using AsyncWebCrawler with retry.
 
     Args:
         url (str): The target webpage URL.
@@ -173,22 +173,25 @@ async def crawl_company_info_app(url: str):
     run_config = CrawlerRunConfig(
         extraction_strategy=company_info_extraction,
         cache_mode=CacheMode.BYPASS,
-        delay_before_return_html = 3.0,
-        check_robots_txt = True,
-        verbose = True
-
+        delay_before_return_html=3.0,
+        check_robots_txt=True,
+        verbose=True
     )
 
-    try:
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            result = await crawler.arun(url=url, config=run_config,)
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                result = await crawler.arun(url=url, config=run_config)
+                return result
+        except Exception as e:
+            print(f"[Attempt {attempt}] Error: {e}")
+            logger.error("Failed to crawl URL '%s' on attempt %d: %s", url, attempt, str(e))
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)
+            else:
+                print("Max retries reached. Skipping.")
+    return None
 
-            return result
-
-    except Exception as e:
-        print(e)
-        logger.error("Failed to crawl URL '%s': %s", url, str(e))
-        return None
 from collections import defaultdict
 async def _fetch_company_info(company_name: str):
     """
@@ -234,55 +237,56 @@ async def _fetch_company_info(company_name: str):
 def fetch_company_info(company_name: str):
     return asyncio.run(_fetch_company_info(company_name))
 
-async def crawl_company_person_app(company_name, url):
+async def crawl_company_person_app(company_name, url, max_retries=3, retry_delay=2):
     js_click_tab = ["document.querySelector('#lsTab3CT')?.click();"]
 
-    # Step 1: Extract general company info
-    config1 = CrawlerRunConfig(
-        extraction_strategy=company_name_extractor,
-    )
-
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        result1 = await crawler.arun(url=url, config=config1)
-        
+    for attempt in range(1, max_retries + 1):
         try:
-            data = json.loads(result1.extracted_content)
+            # Step 1: Extract general company info
+            config1 = CrawlerRunConfig(
+                extraction_strategy=company_name_extractor,
+            )
+
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                result1 = await crawler.arun(url=url, config=config1)
+
+                data = json.loads(result1.extracted_content)
+
+                flat_data = {}
+                for entry in data:
+                    flat_data.update(entry)
+
+                crawl_company_name = flat_data.get('company_name', '')
+                print(f"Crawled company name: {crawl_company_name}")
+
+            # Step 2: Click on the correct tab and extract people info
+            config2 = CrawlerRunConfig(
+                js_code=js_click_tab,
+                extraction_strategy=company_person_extractor,
+            )
+
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                result2 = await crawler.arun(url=url, config=config2)
+
+                data = json.loads(result2.extracted_content)
+                return data
+
         except Exception as e:
-            print(f"Failed to parse company name JSON: {e}")
-            return None
-
-        flat_data = {}
-        for entry in data:
-            flat_data.update(entry)
-
-        crawl_company_name = flat_data.get('company_name', '')
-        print(f"Crawled company name: {crawl_company_name}")
-
-
-    # Step 2: Click on the correct tab and extract people info
-    config2 = CrawlerRunConfig(
-        js_code=js_click_tab,
-        extraction_strategy=company_person_extractor,
-    )
-
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        result2 = await crawler.arun(url=url, config=config2)
-
-        try:
-            data = json.loads(result2.extracted_content)
-        except Exception as e:
-            print(f"Failed to parse person info JSON: {e}")
-            return None
-
-    return data
+            print(f"[Attempt {attempt}] Error during crawling: {e}")
+            if attempt < max_retries:
+                print(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+            else:
+                print("Max retries reached. Giving up.")
+                return None
 
 
 async def _fetch_company_person(company_name):
-    results = get_gg_search(f"{company_name} cafef", 1)
+    results = get_gg_search(f"{company_name} cafef", 3)
     print(results)
     for result in results:
         try:
-            output = await crawl_company_person_app(company_name, result.get('url',''))
+            output = await crawl_company_person_app(company_name, result.get('url', ''))
             if output:
                 return output
         except Exception as e:
@@ -408,5 +412,5 @@ def get_gg_news(news):
 
 if __name__ == "__main__":
     company_name = "CÔNG TY CỔ PHẦN VIMC LOGISTICS"
-    print(fetch_company_person(company_name))
+    print(crawl_news("https://vimclogistics.com.vn/"))
 

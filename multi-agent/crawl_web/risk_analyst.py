@@ -22,12 +22,6 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
 
-class CompanyInfo(BaseModel):
-    name: str
-    tax: str
-    address: str
-    industry_field: str
-    lanhdao_hoidongquantri: str
 
 # Create a custom boto3 session
 session = boto3.Session(

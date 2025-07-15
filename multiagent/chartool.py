@@ -3,6 +3,22 @@ import json
 import boto3
 # from upload import *
 import io
+from strands import tool
+from quickchart import QuickChart
+import os
+# from upload import *
+
+from dotenv import load_dotenv  
+import boto3
+import json
+import base64
+# from pdf2image import convert_from_path
+from PIL import Image
+
+
+load_dotenv()
+access = os.getenv('AWS_ACCESS_KEY')
+secret = os.getenv('AWS_SECRET_KEY')
 
 def generate_quickchart_configs(chart_list):
     chart_output = {}
@@ -111,56 +127,32 @@ def generate_quickchart_configs(chart_list):
     return chart_output
 
 
-chart_json = {
-    'asset_vs_profitability': {
-        'quarters': [],
-        'labels': ['tong_tai_san', 'loi_nhuan_sau_thue', 'ROA'],
-        'chart_type': 'mix',  # Total Assets, Net Profit, Return on Assets
-        'data': {}
-    },
-    'equity_vs_return': {
-        'quarters': [],
-        'labels': ['von_chu_so_huu', 'loi_nhuan_sau_thue', 'ROE'],
-        'chart_type': 'mix',  # Equity, Net Profit, Return on Equity
-        'data': {}
-    },
-    'revenue_vs_efficiency': {
-        'quarters': [],
-        'labels': ['tong_doanh_thu', 'loi_nhuan_sau_thue', 'ROS'],
-        'chart_type': 'mix',  # Revenue, Net Profit, Return on Sales
-        'data': {}
-    },
-    'gross_margin_vs_profits': {
-        'quarters': [],
-        'labels': ['GrossProfitMargin', 'loi_nhuan_sau_thue', 'loi_nhuan_gop'],
-        'chart_type': 'mix',  # Gross Margin and profits
-        'data': {}
-    },
-    'assets_liabilities_structure': {
-        'quarters': [],
-        'labels': ['tong_tai_san', 'tong_no', 'DebtRatio'],
-        'chart_type': 'stacked',  # Assets, Debt, Debt Ratio
-        'data': {}
-    },
-    'profit_breakdown': {
-        'quarters': [],
-        'labels': ['loi_nhuan_sau_thue', 'loi_nhuan_truoc_thue', 'loi_nhuan_gop'],
-        'chart_type': 'bar',  # Net, Pre-tax, Gross profits
-        'data': {}
-    },
-    'capital_structure': {
-        'quarters': [],
-        'labels': ['von_chu_so_huu', 'tong_no', 'tong_tai_san'],
-        'chart_type': 'stacked',  # Equity, Liabilities, Assets
-        'data': {}
-    },
-    'efficiency_and_liquidity': {
-        'quarters': [],
-        'labels': ['AssetTurnoverRatio', 'ROA', 'CurrentRatio'],
-        'chart_type': 'line',  # Operational ratios
-        'data': {}
-    }
-}
+@tool
+def compute_cal(data):
+    def safe_div(x, y):
+        try:
+            return round(x / y * 100, 2) if y else None
+        except Exception:
+            return None
+
+    try:
+        return {
+            "Bien_loi_nhuan": safe_div(data.get("loi_nhuan_sau_thue"), data.get("tong_doanh_thu")),
+            "ROE - Tỷ suất sinh lời trên vốn chủ": safe_div(data.get("loi_nhuan_sau_thue"), data.get("von_chu_so_huu")),
+            "Hiệu suất sử dụng tài sản": safe_div(data.get("tong_doanh_thu"), data.get("tong_tai_san")),
+            "Tỷ lệ vốn chủ sở hữu": safe_div(data.get("von_chu_so_huu"), data.get("tong_tai_san")),
+            "Tỷ lệ nợ": safe_div(data.get("tong_no"), data.get("tong_tai_san")),
+            "Khả năng thanh toán hiện hành": safe_div(data.get("tong_tai_san_luu_dong_ngan_han"), data.get("no_ngan_han")),
+            "Biên lợi nhuận gộp": safe_div(data.get("loi_nhuan_gop"), data.get("tong_doanh_thu")),
+            "ROA - Tỷ suất sinh lời trên tài sản": safe_div(data.get("loi_nhuan_sau_thue"), data.get("tong_tai_san")),
+            "ROCE - Hiệu quả sử dụng vốn": safe_div(data.get("loi_nhuan_truoc_thue"), (data.get("tong_tai_san", 0) - data.get("no_ngan_han", 0))),
+            "ROS - Tỷ suất sinh lời trên doanh thu": safe_div(data.get("loi_nhuan_sau_thue"), data.get("tong_doanh_thu")),
+        }
+    except Exception as e:
+        print("⚠️ Lỗi khi tính toán chỉ số:", e)
+        print("⚠️ Dữ liệu bị lỗi:", data)
+        return {}
+        
 def transform(datas):
     merged = {
         "data": {
@@ -168,22 +160,58 @@ def transform(datas):
             "cal": {}
         }
     }
-    with open('./charts.json') as f:
-        chart_list=json.load(f)
+    chart_list = {
+    'tai_san_va_hieu_qua_sinh_loi': {
+        'quarters': [],
+        'labels': ['tong_tai_san', 'loi_nhuan_sau_thue', 'ROA - Tỷ suất sinh lời trên tài sản'],
+        'chart_type': 'mix',
+        'data': {}
+    },
+    'von_chu_va_sinh_loi': {
+        'quarters': [],
+        'labels': ['von_chu_so_huu', 'loi_nhuan_sau_thue', 'ROE - Tỷ suất sinh lời trên vốn chủ'],
+        'chart_type': 'mix',
+        'data': {}
+    },
+    'doanh_thu_va_hieu_qua': {
+        'quarters': [],
+        'labels': ['tong_doanh_thu', 'loi_nhuan_sau_thue', 'ROS - Tỷ suất sinh lời trên doanh thu'],
+        'chart_type': 'mix',
+        'data': {}
+    },
+    'bien_loi_nhuan_va_loi_nhuan': {
+        'quarters': [],
+        'labels': ['Biên lợi nhuận gộp', 'loi_nhuan_sau_thue', 'loi_nhuan_gop'],
+        'chart_type': 'mix',
+        'data': {}
+    },
+    'co_cau_tai_san_no': {
+        'quarters': [],
+        'labels': ['tong_tai_san', 'tong_no', 'Tỷ lệ nợ'],
+        'chart_type': 'stacked',
+        'data': {}
+    },
+    'phan_tich_loi_nhuan': {
+        'quarters': [],
+        'labels': ['loi_nhuan_sau_thue', 'loi_nhuan_truoc_thue', 'loi_nhuan_gop'],
+        'chart_type': 'bar',
+        'data': {}
+    },
+    'co_cau_von': {
+        'quarters': [],
+        'labels': ['von_chu_so_huu', 'tong_no', 'tong_tai_san'],
+        'chart_type': 'stacked',
+        'data': {}
+    },
+    'hieu_suat_va_kha_nang_thanh_toan': {
+        'quarters': [],
+        'labels': ['Hiệu suất sử dụng tài sản', 'ROA - Tỷ suất sinh lời trên tài sản', 'Khả năng thanh toán hiện hành'],
+        'chart_type': 'line',
+        'data': {}
+    }
+}
     # Financial metric calculator
-    def compute_cal(data):
-        return {
-            "Bien_loi_nhuan": round(data["loi_nhuan_sau_thue"] / data["tong_doanh_thu"] * 100, 2),
-            "ROE": round(data["loi_nhuan_sau_thue"] / data["von_chu_so_huu"] * 100, 2),
-            "AssetTurnoverRatio": round(data["tong_doanh_thu"] / data["tong_tai_san"], 4),
-            "EquityRatio": round(data["von_chu_so_huu"] / data["tong_tai_san"] * 100, 2),
-            "DebtRatio": round(data["tong_no"] / data["tong_tai_san"] * 100, 2),
-            "CurrentRatio": round(data["tong_tai_san_luu_dong_ngan_han"] / data["no_ngan_han"], 2),
-            "GrossProfitMargin": round(data["loi_nhuan_gop"] / data["tong_doanh_thu"] * 100, 2),
-            "ROA": round(data["loi_nhuan_sau_thue"] / data["tong_tai_san"] * 100, 2),
-            "ROCE": round(data["loi_nhuan_truoc_thue"] / (data["tong_tai_san"] - data["no_ngan_han"]) * 100, 2),
-            'ROS': round(data['loi_nhuan_sau_thue']/(data['tong_doanh_thu'])*100)
-        }
+    
 
     for d in datas:
         quarter = d["quy"]
@@ -206,17 +234,11 @@ def transform(datas):
                 chart["data"][label].append(value)
     return merged, chart_list
 
-from quickchart import QuickChart
-import os
-from upload import *
-from dotenv import load_dotenv
-load_dotenv()
-access = os.getenv('accesskey')
-secret = os.getenv('serectkey')
 
 def save_charts_with_quickchart(chart_configs, output_dir):
     """
-    Given chart configs in QuickChart format, render and save them as PNG images.
+    Given chart configs in QuickChart format, render and save them as PNG images to a local folder.
+    
     :param chart_configs: dict of {chart_name: quickchart_config}
     :param output_dir: folder to save PNG files
     """
@@ -229,32 +251,23 @@ def save_charts_with_quickchart(chart_configs, output_dir):
         qc.device_pixel_ratio = 2.0
         qc.config = config
 
-        # Save PNG file
         output_path = os.path.join(output_dir, f"{name}.png")
+
         try:
             # Get image bytes
             img_bytes = qc.get_bytes()
-            img_buffer = io.BytesIO(img_bytes)
-            img_buffer.seek(0)
 
-            # filename = f"charts/{name}.png"
-            upload_to_s3_safe(img_buffer,'vpbank-team91',output_path,access,secret,'ap-southeast-1')
+            # Save directly to file
+            with open(output_path, "wb") as f:
+                f.write(img_bytes)
+
+            print(f"Saved chart: {output_path}")
+
         except Exception as e:
-            print("ERROR: ",e)
+            print(f"ERROR saving chart '{name}':", e)
 
 
-import os
-import base64
-import os
-import base64
-import boto3
-import json
 
-import boto3
-import json
-import base64
-# from pdf2image import convert_from_path
-from PIL import Image
 def get_chart_context(images):
     # Add instruction to describe each chart and return structured JSON
     images.append({
@@ -285,19 +298,19 @@ def get_chart_context(images):
     }
 
     session = boto3.Session(
-        aws_access_key_id="access",
-        aws_secret_access_key="secret",
-        region_name="us-west-2"
+        aws_access_key_id= access,
+        aws_secret_access_key=secret,
+        region_name="ap-southeast-1"
     )
     client = session.client("bedrock-runtime")
 
     response = client.invoke_model(
-        modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',
+        modelId='arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0',
         contentType='application/json',
         accept='application/json',
         body=json.dumps(payload)
     )
-
+    print(response)
     response_body = json.loads(response['body'].read())
     # print("\nClaude Response:\n")
     raw_text = response_body["content"][0]["text"]
@@ -311,31 +324,71 @@ def get_chart_context(images):
 
     return structured_output
 
+def images_as_base64_blocks_from_local(folder_path):
+    images = []
+    for fname in os.listdir(folder_path):
+        if fname.endswith(".png"):
+            with open(os.path.join(folder_path, fname), "rb") as f:
+                img_bytes = f.read()
+                b64 = base64.b64encode(img_bytes).decode("utf-8")
+                images.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": b64
+                    }
+                })
+    return images
+def snake_to_pascal(s):
+    return '_'.join([word.capitalize() for word in s.split('_')])
 
-def chart_tool(datas:list,ses:str):
-    transformed,chart_list =transform(datas)
+@tool
+def analyze_financial_data(quarterly_data: list):
 
-    upload_to_s3_safe(transformed,'vpbank-team91',f"{ses}_raw/{ses}_transformed.json",access,secret,'ap-southeast-1')
 
-    upload_to_s3_safe(chart_list,'vpbank-team91',f"{ses}_raw/{ses}_chart_list.json",access,secret,'ap-southeast-1')
-  
+    # Step 1: Compute metrics per quarter
+    enriched_data = []
+    for entry in quarterly_data:
+        try:
+            cal = compute_cal(entry)
+            enriched = entry.copy()
+            enriched.update(cal)
+            enriched_data.append(enriched)
+        except Exception as e:
+            entry["error"] = f"Error: {e}"
+            enriched_data.append(entry)
+
+    # Step 2: Transform to chart data
+    transformed, chart_list = transform(enriched_data)
+
+    # Step 3: Generate chart configs and images
     chart_configs = generate_quickchart_configs(chart_list)
+    output_dir = "charts"
+    save_charts_with_quickchart(chart_configs, output_dir)
 
-    save_charts_with_quickchart(chart_configs,output_dir=f"{ses}_charts")
+    # Step 4: Get base64 images & captions
+    images = images_as_base64_blocks_from_local(output_dir)
+    captions = get_chart_context(images)
 
-    images = images_as_base64_blocks('vpbank-team91',f"{ses}_charts",access,secret,)
+    # Step 5: Format final result
+    def snake_to_pascal(s): return '_'.join(w.capitalize() for w in s.split('_'))
 
-    if images:
-        imagescontext = get_chart_context(images)
-    else:
-        print("error")
+    result = []
+    for chartname in chart_list:
+        path = f"{output_dir}/{chartname}.png"
+        caption = captions.get(snake_to_pascal(chartname), "Không có mô tả.")
+        result.append({
+            "chartname": chartname,
+            "chartpath": path,
+            "chartcaption": caption
+        })
 
-
-    upload_to_s3_safe(imagescontext,'vpbank-team91',f"{ses}_raw/imagescontext.json",access,secret,'ap-southeast-1')
-    return imagescontext
+    return result
 
 if __name__=="__main__":
-    data = {
+    data = [
+    {
     "quy": "Q1/2025",
     "tong_tai_san_cuoi_quy": 3242801930898, 
     "loi_nhuan_sau_thue": -116915411380,
@@ -350,8 +403,8 @@ if __name__=="__main__":
     "loi_nhuan_truoc_thue": -116888181727,
     "tong_tai_san_luu_dong_ngan_han": 2285669507340,
     "no_ngan_han": 2524167001622
-    }
-    data2={
+    },
+    {
     "quy": "Q2/2024",
     "tong_tai_san_cuoi_quy": 3888127929013,
     "loi_nhuan_sau_thue": -39411140488,
@@ -366,9 +419,8 @@ if __name__=="__main__":
     "loi_nhuan_truoc_thue": -39411140488,
     "tong_tai_san_luu_dong_ngan_han": 2645837926158,
     "no_ngan_han": 1794456519079
-    }
-
-    data3={
+    },
+    {
     "quy": "Q3/2024",
     "tong_tai_san_cuoi_quy": 3813551935399,
     "loi_nhuan_sau_thue": -52971181445,
@@ -383,9 +435,8 @@ if __name__=="__main__":
     "loi_nhuan_truoc_thue": -52971181392,
     "tong_tai_san_luu_dong_ngan_han": 2607354571405,
     "no_ngan_han": 2453654772417
-    }
-
-    data4={
+    },
+    {
     "quy": "Q4/2024",
     "tong_tai_san_cuoi_quy": 3337972266791,
     "loi_nhuan_sau_thue": -214198247455,
@@ -401,4 +452,6 @@ if __name__=="__main__":
     "tong_tai_san_luu_dong_ngan_han": 2357624604751,
     "no_ngan_han": 2441157168380
     }
-    chart_tool([data,data2,data3,data4],'stkltd')
+]
+    print(analyze_financial_data(data))
+

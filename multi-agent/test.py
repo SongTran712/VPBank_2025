@@ -143,4 +143,3 @@ Chỉ cần cập nhật lại không cần nói rõ thông tin nào giữ, thô
 {str(output.companyInfo)}
 """)
 
-print(final)
