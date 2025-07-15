@@ -193,6 +193,10 @@ def get_cmpy_info_from_s3(bucket: str, prefix: str):
             Tên công ty, Mã chứng khoán, Địa chỉ trụ sở, Số điện thoại, Email, Lĩnh vực kinh doanh.
         Hãy trả kết quả dưới dạng JSON. Ví dụ như sau:
         {
+        "KiemToan": "True",
+        "DonViKiemToan":...,
+        "ThanhPhanBCTC":"Bảng Cân Đối Kế Toán, Báo Cáo Kết Quả Kinh Doanh,..."
+        "YKienDonViKiemToan:...,
         "TenCongTy": "Abc",
         "MaChungKhoan": ...,
         "DiaChi": ...,
@@ -323,6 +327,7 @@ Trả về status: False khi không trích xuất được đủ trường cho 4
         try:
             upload_json_to_s3(company_info_dict, 'testworkflow123', 'info_agent/', 'companyInfo.json')
             upload_json_to_s3(company_bctc_dict, 'testworkflow123', 'info_agent/', 'companyBctc.json')
+            upload_json_to_s3(out, 'testworkflow123', 'content/info_extract', 'info.json')
         except Exception as e:
             return f"Error when uploading JSON to S3: {str(e)}"
 

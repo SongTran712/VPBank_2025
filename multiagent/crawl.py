@@ -44,7 +44,7 @@ chrome_options.add_argument("--log-level=3")
 logger = logging.getLogger(__name__)
 google_news = GNews(language='vi', 
                     country='VN',
-                    max_results=3,
+                    max_results=5,
                     period='1y',
                     
                     )

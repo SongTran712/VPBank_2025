@@ -37,3 +37,12 @@ model = BedrockModel(
             # boto_client_config=self.boto_config,
         )
 
+
+system_prompt = """
+
+"""
+
+
+
+
+output_agent = Agent(model = model, system_prompt = system_prompt)

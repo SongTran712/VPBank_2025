@@ -88,9 +88,6 @@ doc.add_paragraph(data["finance_information"])
 # url = data["image_url"]
 # download_and_insert_image(doc, url)
 
-add_bold_heading(doc, "Thông tin tín dụng tại các TCTD khác:")
-doc.add_paragraph(data["raw"])
-
 add_bold_heading(doc, "Nhu cầu cấp tín dụng của KH:")
 doc.add_paragraph(data["raw"])
 
@@ -104,13 +101,6 @@ doc.add_paragraph(data["raw"])
 add_bold_heading(doc, "3. Đánh giá thị trường(BCTN)", "FF0000")
 doc.add_paragraph(data["raw"])
 
-add_bold_heading(doc, "3.1 Thị trường đầu vào:")
-doc.add_paragraph("Nhận xét:")
-doc.add_paragraph(data["raw"])
-
-add_bold_heading(doc, "3.2 Thị trường đầu ra:")
-doc.add_paragraph("Nhận xét:")
-doc.add_paragraph(data["raw"])
 
 add_bold_heading(doc, "4. Đánh giá tình hình tài chính", "FF0000")
 add_bold_heading(doc, "4.1 Thông tin Chung về báo cáo tài chính (BCTC):")
@@ -145,18 +135,7 @@ doc.add_paragraph(data["raw"])
 add_bold_heading(doc, "Nhận xét chung:")
 doc.add_paragraph(data["raw"])
 
-add_bold_heading(doc, "E. THẨM ĐỊNH PAKD/DỰ ÁN ĐẦU TƯ VÀ NHU CẦU CẤP TÍN DỤNG", "FF0000")
-add_bold_heading(doc, "1. Trường hợp cấp HMTD ngắn hạn")
-doc.add_paragraph(data["raw"])
-
-add_bold_heading(doc, "2. Trường hợp cấp HMLC/ phát hành L/C theo món")
-doc.add_paragraph(data["raw"])
-
-add_bold_heading(doc, "3. Trường hợp cấp HM Bảo lãnh:")
-doc.add_paragraph(data["raw"])
-
-add_bold_heading(doc, "F. TÀI SẢN BẢO ĐẢM (ko cần ghi)", "FF0000")
-add_bold_heading(doc, "G. RỦI RO VÀ CÁC BIỆN PHÁP KIỂM SOÁT RỦI RO", "FF0000")
+add_bold_heading(doc, "D. RỦI RO VÀ CÁC BIỆN PHÁP KIỂM SOÁT RỦI RO", "FF0000")
 doc.add_paragraph(data["raw"])
 
 # Save document

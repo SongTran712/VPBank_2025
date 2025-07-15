@@ -32,7 +32,16 @@ boto_config = BotocoreConfig(
 
 model = BedrockModel(
             model_id="arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
-            boto_session = session,
+            boto_session=session,
+            temperature=0.3,
+            top_p=0.8,
+            stop_sequences=["###", "END"],
+            # boto_client_config=self.boto_config,
+        )
+
+structure_model = BedrockModel(
+            model_id="arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
+            boto_session=session,
             temperature=0.3,
             top_p=0.8,
             stop_sequences=["###", "END"],
@@ -104,7 +113,7 @@ class TaiChinh(BaseModel):
     ruiro: str
     ketluan: str
 
-structure_agent = Agent(model = model)
+structure_agent = Agent(model = structure_model)
 
 
 def finance_agent(bucket='testworkflow123', prefix='info_agent/companyBctc.json'):
@@ -163,12 +172,12 @@ Trả về thongso: thông số tài chính của công ty; diemmanh: những m�
 
         # Step 6: Upload charts and raw financial text
         try:
-            upload_folder_to_s3('charts', bucket, 'content/fin_charts/')
+            upload_folder_to_s3('charts', bucket, 'content/fin_analyst/fin_charts/')
         except Exception as e:
             return f"Error uploading chart folder to S3: {e}"
 
         try:
-            upload_text_to_s3(bucket, 'content/fin_data.txt', fin_data)
+            upload_text_to_s3(bucket, 'content/fin_analyst/fin_data.txt', fin_data)
         except Exception as e:
             return f"Error uploading financial text to S3: {e}"
 

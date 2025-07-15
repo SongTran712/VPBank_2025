@@ -7,15 +7,16 @@ from strands import tool
 from quickchart import QuickChart
 import os
 # from upload import *
-
+import pandas as pd
 from dotenv import load_dotenv  
 import boto3
 import json
 import base64
 # from pdf2image import convert_from_path
 from PIL import Image
-
-
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 load_dotenv()
 access = os.getenv('AWS_ACCESS_KEY')
 secret = os.getenv('AWS_SECRET_KEY')
@@ -126,6 +127,7 @@ def generate_quickchart_configs(chart_list):
 
     return chart_output
 
+
 @tool
 def compute_cal(data):
     def safe_div(x, y):
@@ -136,7 +138,7 @@ def compute_cal(data):
 
     try:
         return {
-            "Bien_loi_nhuan": safe_div(data.get("loi_nhuan_sau_thue"), data.get("tong_doanh_thu")),
+            "Biên lợi nhuận": safe_div(data.get("loi_nhuan_sau_thue"), data.get("tong_doanh_thu")),
             "ROE - Tỷ suất sinh lời trên vốn chủ": safe_div(data.get("loi_nhuan_sau_thue"), data.get("von_chu_so_huu")),
             "Hiệu suất sử dụng tài sản": safe_div(data.get("tong_doanh_thu"), data.get("tong_tai_san")),
             "Tỷ lệ vốn chủ sở hữu": safe_div(data.get("von_chu_so_huu"), data.get("tong_tai_san")),
@@ -160,49 +162,49 @@ def transform(datas):
         }
     }
     chart_list = {
-    'tai_san_va_hieu_qua_sinh_loi': {
+    'Tài sản và hiệu quả sinh lời': {
         'quarters': [],
         'labels': ['tong_tai_san', 'loi_nhuan_sau_thue', 'ROA - Tỷ suất sinh lời trên tài sản'],
         'chart_type': 'mix',
         'data': {}
     },
-    'von_chu_va_sinh_loi': {
+    'Vốn chủ sở hữu và khả năng sinh lời': {
         'quarters': [],
         'labels': ['von_chu_so_huu', 'loi_nhuan_sau_thue', 'ROE - Tỷ suất sinh lời trên vốn chủ'],
         'chart_type': 'mix',
         'data': {}
     },
-    'doanh_thu_va_hieu_qua': {
+    'Doanh thu và hiệu quả': {
         'quarters': [],
         'labels': ['tong_doanh_thu', 'loi_nhuan_sau_thue', 'ROS - Tỷ suất sinh lời trên doanh thu'],
         'chart_type': 'mix',
         'data': {}
     },
-    'bien_loi_nhuan_va_loi_nhuan': {
+    'Biên lợi nhuận và lợi nhuận': {
         'quarters': [],
         'labels': ['Biên lợi nhuận gộp', 'loi_nhuan_sau_thue', 'loi_nhuan_gop'],
         'chart_type': 'mix',
         'data': {}
     },
-    'co_cau_tai_san_no': {
+    'Cơ cấu tài sản nợ': {
         'quarters': [],
         'labels': ['tong_tai_san', 'tong_no', 'Tỷ lệ nợ'],
         'chart_type': 'stacked',
         'data': {}
     },
-    'phan_tich_loi_nhuan': {
+    'Phân tích lợi nhuận': {
         'quarters': [],
         'labels': ['loi_nhuan_sau_thue', 'loi_nhuan_truoc_thue', 'loi_nhuan_gop'],
         'chart_type': 'bar',
         'data': {}
     },
-    'co_cau_von': {
+    'Cơ cấu vốn': {
         'quarters': [],
         'labels': ['von_chu_so_huu', 'tong_no', 'tong_tai_san'],
         'chart_type': 'stacked',
         'data': {}
     },
-    'hieu_suat_va_kha_nang_thanh_toan': {
+    'Hiệu suất và khả năng thanh toán': {
         'quarters': [],
         'labels': ['Hiệu suất sử dụng tài sản', 'ROA - Tỷ suất sinh lời trên tài sản', 'Khả năng thanh toán hiện hành'],
         'chart_type': 'line',
@@ -242,6 +244,7 @@ def save_charts_with_quickchart(chart_configs, output_dir):
     :param output_dir: folder to save PNG files
     """
     os.makedirs(output_dir, exist_ok=True)
+    
 
     for name, config in chart_configs.items():
         qc = QuickChart()
@@ -264,7 +267,6 @@ def save_charts_with_quickchart(chart_configs, output_dir):
 
         except Exception as e:
             print(f"ERROR saving chart '{name}':", e)
-
 
 
 def get_chart_context(images):
@@ -323,6 +325,8 @@ def get_chart_context(images):
 
     return structured_output
 
+
+
 def images_as_base64_blocks_from_local(folder_path):
     images = []
     for fname in os.listdir(folder_path):
@@ -342,6 +346,72 @@ def images_as_base64_blocks_from_local(folder_path):
 def snake_to_pascal(s):
     return '_'.join([word.capitalize() for word in s.split('_')])
 
+def table_for_report(data:dict, output_dir:str):
+        # Convert to DataFrames and transpose
+        stat_df = pd.DataFrame(data['data']['stat']).T
+        cal_df = pd.DataFrame(data['data']['cal']).T
+        
+# Drop column if it exists (some quarters use a different key spelling)
+        stat_df.drop(columns=[col for col in ['loi_nhuan_gop_ve_bh_va_ccdv', 'loi_nhuan_gop_ve_BH_va_CCDV'] if col in stat_df.columns], inplace=True)
+
+        # Rename columns for 'stat'
+        stat_df.rename(columns={
+            'tong_tai_san': 'Tổng tài sản',
+            'tong_no': 'Tổng nợ',
+            'von_chu_so_huu': 'Vốn chủ sở hữu',
+            'tong_doanh_thu': 'Tổng doanh thu',
+            'gia_von_hang_ban': 'Giá vốn hàng bán',
+            'loi_nhuan_gop': 'Lợi nhuận gộp',
+            'loi_nhuan_sau_thue': 'Lợi nhuận sau thuế',
+            'loi_nhuan_truoc_thue': 'Lợi nhuận trước thuế',
+            'no_ngan_han': 'Nợ ngắn hạn',
+            'tong_tai_san_luu_dong_ngan_han': 'Tổng tài sản lưu động ngắn hạn',
+            'tong_tai_san_cuoi_quy': 'Tổng tài sản cuối quý',
+            'loi_nhuan_tai_chinh': 'Lợi nhuận tài chính',
+        }, inplace=True)
+
+        # Rename columns for 'cal'
+        cal_df.rename(columns={
+            'ROA - Tỷ suất sinh lời trên tài sản': 'Tỷ suất sinh lời tài sản (ROA)',
+            'ROE - Tỷ suất sinh lời trên vốn chủ': 'Tỷ suất sinh lời vốn chủ (ROE)',
+            'Tỷ lệ nợ': 'Tỷ lệ nợ',
+            'Tỷ lệ vốn chủ sở hữu': 'Tỷ lệ vốn chủ',
+            'Khả năng thanh toán hiện hành': 'Hệ số thanh toán hiện hành',
+            'Biên lợi nhuận gộp': 'Biên LN gộp',
+            'Hiệu suất sử dụng tài sản': 'Hiệu suất sử dụng tài sản',
+            'Biên lợi nhuận': 'Biên lợi nhuận',
+        }, inplace=True)
+
+        # Plot as tables using matplotlib
+        def plot_table(df, title):
+            fig, ax = plt.subplots(figsize=(12, len(df.columns)*0.5 + 2))
+            ax.axis('off')
+            table = ax.table(cellText=df.round(2).values, colLabels=df.columns, rowLabels=df.index, loc='center')
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1.2, 1.2)
+            # ax.set_title(title, fontweight='bold')
+            fig.suptitle(title, fontsize=14, fontweight='bold', y=1.02)  # y>1 pushes above
+            fig.tight_layout()
+            fig.subplots_adjust(top=0.85) 
+            return fig
+        stat_df=stat_df.T
+        cal_df=cal_df.T
+        stat_fig = plot_table(stat_df[['Q2/2024','Q3/2024','Q4/2024','Q1/2025']], "Bảng Chỉ số Tài chính (Tổng hợp)")
+        cal_fig = plot_table(cal_df[['Q2/2024','Q3/2024','Q4/2024','Q1/2025']], "Bảng Tỷ số Tài chính Hiệu quả")
+
+        stat_fig.tight_layout()
+        cal_fig.tight_layout()
+        try:
+            stat_fig.savefig(f"{output_dir}/Báo cáo tài chính tổng hợp.png", dpi=300, bbox_inches='tight')
+            cal_fig.savefig(f"{output_dir}/Chỉ số hiệu quả tài chính.png", dpi=300, bbox_inches='tight')
+            print('Saved image tables')
+        except Exception as e:
+            print(f'Error: {e}')
+def snake_to_pascal(s):
+    return '_'.join([word.capitalize() for word in s.split('_')])
+
+
 @tool
 def analyze_financial_data(quarterly_data: list):
 
@@ -360,34 +430,49 @@ def analyze_financial_data(quarterly_data: list):
 
     # Step 2: Transform to chart data
     transformed, chart_list = transform(enriched_data)
-
+    print(transformed)
     # Step 3: Generate chart configs and images
     chart_configs = generate_quickchart_configs(chart_list)
     output_dir = "charts"
     save_charts_with_quickchart(chart_configs, output_dir)
-
+    table_for_report(transformed,'charts')
     # Step 4: Get base64 images & captions
-    images = images_as_base64_blocks_from_local(output_dir)
-    captions = get_chart_context(images)
+    # images = images_as_base64_blocks_from_local(output_dir)
+    # captions = get_chart_context(images)
 
     # Step 5: Format final result
-    def snake_to_pascal(s): return '_'.join(w.capitalize() for w in s.split('_'))
+    # def snake_to_pascal(s): return '_'.join(w.capitalize() for w in s.split('_'))
 
     result = []
     for chartname in chart_list:
         path = f"{output_dir}/{chartname}.png"
-        caption = captions.get(snake_to_pascal(chartname), "Không có mô tả.")
+        # caption = captions.get(snake_to_pascal(chartname), "Không có mô tả.")
         result.append({
             "chartname": chartname,
             "chartpath": path,
-            "chartcaption": caption
+            # "chartcaption": caption
         })
 
     return result
 
 if __name__=="__main__":
     data = [
-    
+    {
+    "quy": "Q1/2025",
+    "tong_tai_san_cuoi_quy": 3242801930898, 
+    "loi_nhuan_sau_thue": -116915411380,
+    "loi_nhuan_gop": -61372849620,
+    "von_chu_so_huu": 119953583407,
+    "tong_doanh_thu": 74478217583,
+    "tong_tai_san": 3242801930898,
+    "tong_no": 3122848347491,
+    "gia_von_hang_ban": 135851067203,
+    "loi_nhuan_gop_ve_BH_va_CCDV": -61372849620,
+    "loi_nhuan_tai_chinh": -53217597991,
+    "loi_nhuan_truoc_thue": -116888181727,
+    "tong_tai_san_luu_dong_ngan_han": 2285669507340,
+    "no_ngan_han": 2524167001622
+    },
     {
     "quy": "Q2/2024",
     "tong_tai_san_cuoi_quy": 3888127929013,
@@ -435,23 +520,8 @@ if __name__=="__main__":
     "loi_nhuan_truoc_thue": -214198247455,
     "tong_tai_san_luu_dong_ngan_han": 2357624604751,
     "no_ngan_han": 2441157168380
-    },
-    {
-    "quy": "Q1/2025",
-    "tong_tai_san_cuoi_quy": 3242801930898, 
-    "loi_nhuan_sau_thue": -116915411380,
-    "loi_nhuan_gop": -61372849620,
-    "von_chu_so_huu": 119953583407,
-    "tong_doanh_thu": 74478217583,
-    "tong_tai_san": 3242801930898,
-    "tong_no": 3122848347491,
-    "gia_von_hang_ban": 135851067203,
-    "loi_nhuan_gop_ve_BH_va_CCDV": -61372849620,
-    "loi_nhuan_tai_chinh": -53217597991,
-    "loi_nhuan_truoc_thue": -116888181727,
-    "tong_tai_san_luu_dong_ngan_han": 2285669507340,
-    "no_ngan_han": 2524167001622
-    },
+    }
 ]
     print(analyze_financial_data(data))
+
 
