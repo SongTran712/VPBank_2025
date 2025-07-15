@@ -7,7 +7,7 @@ from strands import tool
 from quickchart import QuickChart
 import os
 # from upload import *
-
+import pandas as pd
 from dotenv import load_dotenv  
 import boto3
 import json
@@ -387,7 +387,10 @@ def table_for_report(data:dict, output_dir:str):
             table.auto_set_font_size(False)
             table.set_fontsize(9)
             table.scale(1.2, 1.2)
-            ax.set_title(title, fontweight='bold')
+            # ax.set_title(title, fontweight='bold')
+            fig.suptitle(title, fontsize=14, fontweight='bold', y=1.02)  # y>1 pushes above
+            fig.tight_layout()
+            fig.subplots_adjust(top=0.85) 
             return fig
         stat_df=stat_df.T
         cal_df=cal_df.T
@@ -397,8 +400,8 @@ def table_for_report(data:dict, output_dir:str):
         stat_fig.tight_layout()
         cal_fig.tight_layout()
         try:
-            stat_fig.to_json(f"{output_dir}/stat_table.json", force_ascii=False, indent=2)
-            cal_fig.to_json(f"{output_dir}/cal_fig.json", force_ascii=False, indent=2)
+            stat_fig.savefig(f"{output_dir}/Báo cáo tài chính tổng hợp.png", dpi=300, bbox_inches='tight')
+            cal_fig.savefig(f"{output_dir}/Chỉ số hiệu quả tài chính.png", dpi=300, bbox_inches='tight')
             print('Saved image tables')
         except Exception as e:
             print(f'Error: {e}')
@@ -429,7 +432,7 @@ def analyze_financial_data(quarterly_data: list):
     chart_configs = generate_quickchart_configs(chart_list)
     output_dir = "charts"
     save_charts_with_quickchart(chart_configs, output_dir)
-
+    table_for_report(transformed,output_dir)
     # Step 4: Get base64 images & captions
     images = images_as_base64_blocks_from_local(output_dir)
     captions = get_chart_context(images)
@@ -517,4 +520,5 @@ if __name__=="__main__":
     }
 ]
     print(analyze_financial_data(data))
+
 
