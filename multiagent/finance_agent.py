@@ -1,5 +1,3 @@
-
-
 import boto3
 from strands.models import BedrockModel
 from botocore.config import Config as BotocoreConfig

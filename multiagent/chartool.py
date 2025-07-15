@@ -126,7 +126,6 @@ def generate_quickchart_configs(chart_list):
 
     return chart_output
 
-
 @tool
 def compute_cal(data):
     def safe_div(x, y):
@@ -388,22 +387,7 @@ def analyze_financial_data(quarterly_data: list):
 
 if __name__=="__main__":
     data = [
-    {
-    "quy": "Q1/2025",
-    "tong_tai_san_cuoi_quy": 3242801930898, 
-    "loi_nhuan_sau_thue": -116915411380,
-    "loi_nhuan_gop": -61372849620,
-    "von_chu_so_huu": 119953583407,
-    "tong_doanh_thu": 74478217583,
-    "tong_tai_san": 3242801930898,
-    "tong_no": 3122848347491,
-    "gia_von_hang_ban": 135851067203,
-    "loi_nhuan_gop_ve_BH_va_CCDV": -61372849620,
-    "loi_nhuan_tai_chinh": -53217597991,
-    "loi_nhuan_truoc_thue": -116888181727,
-    "tong_tai_san_luu_dong_ngan_han": 2285669507340,
-    "no_ngan_han": 2524167001622
-    },
+    
     {
     "quy": "Q2/2024",
     "tong_tai_san_cuoi_quy": 3888127929013,
@@ -451,7 +435,23 @@ if __name__=="__main__":
     "loi_nhuan_truoc_thue": -214198247455,
     "tong_tai_san_luu_dong_ngan_han": 2357624604751,
     "no_ngan_han": 2441157168380
-    }
+    },
+    {
+    "quy": "Q1/2025",
+    "tong_tai_san_cuoi_quy": 3242801930898, 
+    "loi_nhuan_sau_thue": -116915411380,
+    "loi_nhuan_gop": -61372849620,
+    "von_chu_so_huu": 119953583407,
+    "tong_doanh_thu": 74478217583,
+    "tong_tai_san": 3242801930898,
+    "tong_no": 3122848347491,
+    "gia_von_hang_ban": 135851067203,
+    "loi_nhuan_gop_ve_BH_va_CCDV": -61372849620,
+    "loi_nhuan_tai_chinh": -53217597991,
+    "loi_nhuan_truoc_thue": -116888181727,
+    "tong_tai_san_luu_dong_ngan_han": 2285669507340,
+    "no_ngan_han": 2524167001622
+    },
 ]
     print(analyze_financial_data(data))
 

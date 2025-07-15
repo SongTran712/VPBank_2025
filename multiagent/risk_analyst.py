@@ -80,8 +80,10 @@ Instructions:
         )
 
     def analyze_company(self, company_description: str) -> str:
-        return self.agent(company_description)
-
+        results = self.agent(company_description)
+        print(results)
+        output = results.message.get('content', [])[0].get('text', '')
+        return output
 # Usage Example
 if __name__ == "__main__":
     analyst = RiskAnalyst()

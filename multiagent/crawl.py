@@ -34,7 +34,7 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
 chrome_options = webdriver.ChromeOptions()
-chrome_options.add_argument("--headless=new")  # newer headless mode
+chrome_options.add_argument("--headless=True")  # newer headless mode
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--disable-software-rasterizer")
 chrome_options.add_argument("--disable-dev-shm-usage")
@@ -64,28 +64,7 @@ def is_matching_company(expected_name, extracted_name, threshold=85):
         return False
 
 browser_config = BrowserConfig(headless = True, viewport_width = 1280, viewport_height = 720)
-company_info_schema ={
-    "name": "company_info",
-    "baseSelector": "tr", 
-    "fields":[
-        {
-            "name": "company_name",
-            "selector": 'th[itemprop="name"] span.copy',
-            "type": "text"
-        },
-        {
-            "name": "masothue",
-            "selector": 'td[itemprop="taxID"] span.copy',
-            "type": "text"
-        },
-        {
-            "name": "diachi",
-            "selector": 'td[itemprop="address"] span.copy',
-            "type": "text"
-        },
-    ]
-}
-company_info_extraction = JsonCssExtractionStrategy(company_info_schema) 
+
 company_name_schema = {
     "name": "company_person",
     "baseSelector": "div.dulieu",
@@ -119,15 +98,19 @@ company_person_schema = {
         }
 company_person_extractor = JsonCssExtractionStrategy(company_person_schema)
 @tool
-def get_gg_search(info, search_num = 3):
-    j = search(info, num_results=search_num, lang='vn', advanced=True)
-    results = []
-    for i in j:
-        results.append({
-            "url": i.url,
-            "description":i.description
-        })
-    return results
+def get_gg_search(info, search_num=3):
+    try:
+        j = search(info, num_results=search_num, lang='vn', advanced=True)
+        results = []
+        for i in j:
+            results.append({
+                "url": i.url,
+                "description": i.description
+            })
+        return {"status": "success", "data": results}
+    except Exception as e:
+        logger.exception("Lỗi trong get_gg_search:")
+        return {"status": "error", "message": str(e)}
 
 def search_web(text: str, limit: int, domain: str = None) -> list:
     """
@@ -160,22 +143,36 @@ async def wait_before_extract(page):
     await asyncio.sleep(1)  # wait 1 second
 
 # base_wait = """js:() => new Promise(resolve => setTimeout(resolve, 3000))"""
+
+
+
+class CongtY(BaseModel):
+    name: str
+    tax: str
+    diachi: str
+    email: str
+    sdt: str
+    tinhtrang: str
+    
 async def crawl_company_info_app(url: str, max_retries=3, retry_delay=2):
-    """
-    Crawl company information from a given URL using AsyncWebCrawler with retry.
-
-    Args:
-        url (str): The target webpage URL.
-
-    Returns:
-        result: The crawler result if successful, otherwise None.
-    """
+    llm_strategy = LLMExtractionStrategy(
+        llm_config = LLMConfig(provider="openai/gpt-4o-mini", api_token=os.getenv("OPENAI_API_KEY")),
+        schema=CongtY.model_json_schema(), # Or use model_json_schema()
+        extraction_type="schema",
+        instruction="""
+Extract company name, tax, and address of company. If company name you crawl not meet the user input, just return empty json
+"""
+,
+        # chunk_token_threshold=1000,
+        # overlap_rate=0.0,
+        apply_chunking=False,
+        input_format="markdown",   # or "html", "fit_markdown"
+        # extra_args={"temperature": 0.0, "max_tokens": 400}
+    )
     run_config = CrawlerRunConfig(
-        extraction_strategy=company_info_extraction,
+        extraction_strategy=llm_strategy,
         cache_mode=CacheMode.BYPASS,
-        delay_before_return_html=3.0,
-        check_robots_txt=True,
-        verbose=True
+        check_robots_txt=True
     )
 
     for attempt in range(1, max_retries + 1):
@@ -209,22 +206,11 @@ async def _fetch_company_info(company_name: str):
             output = await crawl_company_info_app(result)
             if not output or not output.extracted_content:
                 continue
+            
             data = json.loads(output.extracted_content)
 
-            # Collect duplicate keys properly
-            flat_data = defaultdict(list)
-            for entry in data:
-                for key, value in entry.items():
-                    flat_data[key].append(value)
-
-            # Simplify single-value keys
-            final_data = {
-                k: v[0] if len(v) == 1 else v
-                for k, v in flat_data.items()
-            }
-
-            extracted_name = final_data.get('company_name', '').strip()
-            if extracted_name and is_matching_company(company_name, extracted_name):
+            extracted_name = data[0].get('name', '').strip()
+            if extracted_name:
                 return str(output.extracted_content)
 
         except Exception as e:
@@ -233,11 +219,25 @@ async def _fetch_company_info(company_name: str):
             continue
     return None
 
+class ThanhVien(BaseModel):
+    name: str
+    tax: str
+    diachi: str
+
 @tool
 def fetch_company_info(company_name: str):
-    return asyncio.run(_fetch_company_info(company_name))
+    try:
+        result = asyncio.run(_fetch_company_info(company_name))
+        if result is None:
+            raise ValueError(f"Không tìm thấy thông tin cho '{company_name}'")
+        return {"status": "success", "data": result}
+    except Exception as e:
+        logger.exception("Lỗi trong fetch_company_info:")
+        return {"status": "error", "message": str(e)}
 
-async def crawl_company_person_app(company_name, url, max_retries=3, retry_delay=2):
+
+
+async def crawl_company_person_app(company_name, url, max_retries=4, retry_delay=5):
     js_click_tab = ["document.querySelector('#lsTab3CT')?.click();"]
 
     for attempt in range(1, max_retries + 1):
@@ -259,7 +259,6 @@ async def crawl_company_person_app(company_name, url, max_retries=3, retry_delay
                 crawl_company_name = flat_data.get('company_name', '')
                 print(f"Crawled company name: {crawl_company_name}")
 
-            # Step 2: Click on the correct tab and extract people info
             config2 = CrawlerRunConfig(
                 js_code=js_click_tab,
                 extraction_strategy=company_person_extractor,
@@ -269,6 +268,7 @@ async def crawl_company_person_app(company_name, url, max_retries=3, retry_delay
                 result2 = await crawler.arun(url=url, config=config2)
 
                 data = json.loads(result2.extracted_content)
+                print(data)
                 return data
 
         except Exception as e:
@@ -282,8 +282,7 @@ async def crawl_company_person_app(company_name, url, max_retries=3, retry_delay
 
 
 async def _fetch_company_person(company_name):
-    results = get_gg_search(f"{company_name} cafef", 3)
-    print(results)
+    results = get_gg_search(f"{company_name} cafef", 1).get('data')
     for result in results:
         try:
             output = await crawl_company_person_app(company_name, result.get('url', ''))
@@ -295,7 +294,21 @@ async def _fetch_company_person(company_name):
 
 @tool
 def fetch_company_person(company_name: str):
-    return asyncio.run(_fetch_company_person(company_name))
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            result = asyncio.ensure_future(_fetch_company_person(company_name))
+            # In some contexts (e.g. notebook or bot), await this outside
+            raise RuntimeError("Cannot fetch_company_person inside running event loop without await.")
+        else:
+            result = loop.run_until_complete(_fetch_company_person(company_name))
+
+        if result is None:
+            raise ValueError(f"Không tìm thấy người đại diện cho '{company_name}'")
+        return {"status": "success", "data": result}
+    except Exception as e:
+        logger.exception("Lỗi trong fetch_company_person:")
+        return {"status": "error", "message": str(e)}
 
 class Crawler(BaseModel):
     title: str
@@ -356,61 +369,59 @@ def crawl_news(url):
 
 
 @tool
-def get_gg_news(news):
-    results = google_news.get_news(news)
-    links = []
-
-    # Setup Chrome only once
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
+def get_gg_news(news: str):
     try:
-        for article in results:
-            url = article.get('url')
-            description = article.get('description')
-            if not url:
-                continue
+        results = google_news.get_news(news)
+        if not results:
+            raise ValueError("Không tìm thấy tin tức")
+        
+        # Bổ sung xử lý click để lấy link chi tiết như bạn đã làm
+        links = []
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new")  # Use new headless mode
+        options.add_argument('--ignore-certificate-errors')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--window-size=1920,1080')
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-            try:
-                driver.get(url)
-
-                # Wait for potential redirection or anchor element
-                WebDriverWait(driver, 10).until(
-                    lambda d: d.current_url != url or d.find_elements(By.TAG_NAME, "a")
-                )
-
-                # Handle redirection
-                final_url = driver.current_url
-                if final_url != url:
-                    links.append(final_url)
+        try:
+            for article in results:
+                url = article.get("url")
+                description = article.get("description")
+                if not url:
                     continue
-
-                # Try to extract external link
                 try:
-                    link_element = driver.find_element(By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]')
-                    href = link_element.get_attribute("href")
-                    if href:
-                        links.append(
-                            {
-                                "url": href,
-                                "description": description
-                            }
-                        )
+                    driver.get(url)
+                    WebDriverWait(driver, 10).until(
+                        lambda d: d.current_url != url or d.find_elements(By.TAG_NAME, "a")
+                    )
+                    final_url = driver.current_url
+                    if final_url != url:
+                        links.append(final_url)
+                        continue
+
+                    try:
+                        link_element = driver.find_element(By.CSS_SELECTOR, 'a[rel="noopener noreferrer"]')
+                        href = link_element.get_attribute("href")
+                        if href:
+                            links.append({"url": href, "description": description})
+                    except Exception as e:
+                        logger.warning(f"No external link for {url}: {e}")
+                        continue
                 except Exception as e:
-                    print(f"No external link found for {url}: {e}")
+                    logger.warning(f"Error processing URL {url}: {e}")
                     continue
+        finally:
+            driver.quit()
 
-            except Exception as e:
-                print(f"Error processing URL {url}: {e}")
-                continue
-
-    finally:
-        driver.quit()
-
-    return links
+        return {"status": "success", "data": links}
+    except Exception as e:
+        logger.exception("Lỗi trong get_gg_news:")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
-    company_name = "CÔNG TY CỔ PHẦN VIMC LOGISTICS"
-    print(crawl_news("https://vimclogistics.com.vn/"))
+    company_name = "CÔNG TY CP An Phát"
+    print(get_gg_search(company_name))
 

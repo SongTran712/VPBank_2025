@@ -58,7 +58,7 @@ class CompanyInfoRetriever:
             boto_session=self.session,
             temperature=0.3,
             top_p=0.8,
-            stop_sequences=["###", "END"],
+            # stop_sequences=["###", "END"],
             # boto_client_config=self.boto_config,
         )
 
@@ -67,7 +67,7 @@ You are a helpful personal assistant specializing in searching, collecting, veri
 
 You can use the following tools:
 
-    fetch_company_info and fetch_company_person to obtain basic company information
+    fetch_company_info and fetch_company_person to obtain basic company information. When the tool return None, you can try it again for about 3 times, before use get_gg_search or get_gg_news for information alternatively.
 
     get_gg_search and get_gg_news to search for company-related information on Google
 
@@ -87,7 +87,7 @@ Your task is to provide the following basic company information in Vietnamese, i
 
     Sản phẩm hoặc dịch vụ chính của công ty (Main products or services)
 
-    Tập đoàn mẹ hoặc công ty nắm giữ chính (Parent group or major holding company)
+    Tập đoàn mẹ, công ty con hoặc công ty hợp tác (Parent group or major holding company or partners)
 
 You can make more research in company field, main products, parent or major holding, board of directors of company for more insight of company
 
@@ -113,6 +113,7 @@ Additional Requirements:
 
     def get_basic_info(self, query: str) -> str:
         results = self.agent(query)
+        print(results.metrics)
         output = results.message.get('content', [])[0].get('text', '')
         return output
 
