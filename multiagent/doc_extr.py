@@ -7,14 +7,37 @@ import fitz  # PyMuPDF
 from PIL import Image
 from dotenv import load_dotenv
 import boto3
+from upload import upload_json_to_s3
+from strands import Agent, tool
+from strands.models import BedrockModel
+from botocore.config import Config as BotocoreConfig
+from typing import List
+from pydantic import BaseModel
 
+from dataclasses import dataclass, asdict
 # Load environment variables
 load_dotenv(".env", override=True)
 
+# Create a custom boto3 session
 session = boto3.Session(
-    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY'),
-    aws_secret_access_key=os.environ.get('AWS_SECRET_KEY'),
-    region_name='ap-southeast-1'
+    aws_access_key_id= os.environ.get('AWS_ACCESS_KEY'),
+    aws_secret_access_key= os.environ.get('AWS_SECRET_KEY'),
+    region_name= 'ap-southeast-1'
+    
+)
+boto_config = BotocoreConfig(
+    retries={"max_attempts": 3, "mode": "standard"},
+    connect_timeout=5,
+    read_timeout=60
+)
+# Create a Bedrock model with the custom session
+bedrock_model = BedrockModel(
+    model_id="arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    boto_session=session,
+    temperature=0.3,
+    top_p=0.8,
+    stop_sequences=["###", "END"],
+    # boto_client_config=boto_config,
 )
 s3 = session.client("s3")
 client = session.client("bedrock-runtime")
@@ -222,3 +245,92 @@ def doc_extr_s3(bucket: str, prefix: str):
 
     return final_data, None
 
+structure_agent = Agent(model = bedrock_model)
+@dataclass
+class CompanyInfo:
+    ten_cty: str
+    ma_ck: str
+    dia_chi: str
+    so_dt: str
+    email: str
+    linhvuckinhdoanh: str
+
+@dataclass
+class BctcItem:
+    quy: str
+    tong_tai_san_cuoi_quy: int
+    loi_nhuan_sau_thue: int
+    loi_nhuan_gop: int
+    tong_doanh_thu: int
+    tong_tai_san: int
+    tong_no: int
+    gia_von_hang_ban: int
+    loi_nhuan_gop_ve_BH_va_CCDV: int
+    loi_nhuan_tai_chinh: int
+    loi_nhuan_truoc_thue: int
+    tong_tai_san_luu_dong_ngan_han: int
+    no_ngan_han: int
+
+class CongTy(BaseModel):
+    status: bool
+    error: str
+    companyInfo: CompanyInfo
+    bctc: List[BctcItem]
+
+def extract_document(bucket = 'testworkflow123', prefix = 'pdf/vlg'):
+    try:
+        try:
+            output, err = doc_extr_s3(bucket, prefix)
+        except Exception as e:
+            return f"Error during document extraction from S3: {str(e)}"
+
+        if not output:
+            return f"Error when processing pdf: {err}"
+
+        try:
+            out = json.dumps(output, ensure_ascii=False)
+        except Exception as e:
+            return f"Error serializing output to JSON: {str(e)}"
+
+        try:
+            cty_extract = structure_agent.structured_output(CongTy, f"""
+Hãy phân tích và sắp xếp dữ liệu lại đặc biệt về dữ liệu báo cáo tài chính, sắp xếp lại theo list các quý ứng với các biến sắp xếp theo chiều tăng dần về thời gian.
+Trả về status: False khi không trích xuất được đủ trường cho 4 quý, và error khi status là False sẽ chỉ ra các trường còn thiếu. 
+{out}
+""")
+        except Exception as e:
+            return f"Error during structured output extraction: {str(e)}"
+
+        try:
+            print(cty_extract.status)
+            print(cty_extract.companyInfo)
+        except Exception as e:
+            return f"Error printing structured output fields: {str(e)}"
+
+        if not cty_extract.status:
+            return cty_extract.error
+
+        try:
+            company_info_dict = json.dumps(asdict(cty_extract.companyInfo), ensure_ascii=False)
+        except Exception as e:
+            return f"Error converting companyInfo to JSON: {str(e)}"
+
+        try:
+            company_bctc_dict = [json.dumps(asdict(item), ensure_ascii=False) for item in cty_extract.bctc]
+        except Exception as e:
+            return f"Error converting bctc items to JSON: {str(e)}"
+
+        try:
+            upload_json_to_s3(company_info_dict, 'testworkflow123', 'info_agent/', 'companyInfo.json')
+            upload_json_to_s3(company_bctc_dict, 'testworkflow123', 'info_agent/', 'companyBctc.json')
+        except Exception as e:
+            return f"Error when uploading JSON to S3: {str(e)}"
+
+        return out
+
+    except Exception as e:
+        return f"Unexpected error in extract_document: {str(e)}"
+    
+if __name__ == "__main__":
+    output = extract_document()
+    print(output)

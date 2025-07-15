@@ -5,44 +5,34 @@ from botocore.config import Config as BotocoreConfig
 from strands.models import BedrockModel
 from strands import Agent
 from gnews import GNews
-
+import json
+from upload import read_json_from_s3, upload_text_to_s3
 from crawl import fetch_company_info, fetch_company_person, get_gg_search, get_gg_news, crawl_news
 
-class RiskAnalyst:
-    def __init__(self):
-        os.environ["BYPASS_TOOL_CONSENT"] = "true"
-        self._load_env()
-        self._init_google_news()
-        self._init_bedrock_model()
-        self._init_agent()
+load_dotenv()
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
 
-    def _load_env(self):
-        load_dotenv()
-        self.AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-        self.AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-        self.OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
-
-    def _init_google_news(self):
-        self.google_news = GNews(
+google_news = GNews(
             language='vi',
             country='VN',
             max_results=5,
             period='1y',
         )
 
-    def _init_bedrock_model(self):
-        boto_config = BotocoreConfig(
+boto_config = BotocoreConfig(
             retries={"max_attempts": 3, "mode": "standard"},
             connect_timeout=5,
             read_timeout=60
         )
-        session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY,
-            aws_secret_access_key=self.AWS_SECRET_KEY,
+session = boto3.Session(
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_KEY,
             region_name = "ap-southeast-1"
         )
 
-        self.bedrock_model = BedrockModel(
+bedrock_model = BedrockModel(
             model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
             boto_session=session,
             temperature=0.3,
@@ -51,8 +41,10 @@ class RiskAnalyst:
             # boto_client_config=boto_config,
         )
 
-    def _init_agent(self):
-        system_prompt = """
+
+def get_risk_data(company_description: str) -> str:
+    
+    system_prompt = """
 You are an intelligent personal assistant, specialized in searching, collecting, and analyzing information about companies in Vietnam.
 
 You have access to the following tools:
@@ -73,33 +65,99 @@ Instructions:
 - Provide your assessment in a **clear, well-organized, and structured format**.
 - All responses must be in **Vietnamese**.
 """
-        self.agent = Agent(
+
+    risk_agent = Agent(
             tools=[get_gg_news, get_gg_search, crawl_news],
-            model=self.bedrock_model,
+            model= bedrock_model,
             system_prompt=system_prompt,
         )
+    results = risk_agent(company_description)
+    output = results.message.get('content', [])[0].get('text', '')
+    return output
 
-    def analyze_company(self, company_description: str) -> str:
-        results = self.agent(company_description)
-        print(results)
-        output = results.message.get('content', [])[0].get('text', '')
-        return output
-# Usage Example
+
+
+
+def generate_company_report(json1: dict, json2: dict) -> str:
+    text = []
+
+    # Company Info
+    text.append("🏢 THÔNG TIN DOANH NGHIỆP")
+    text.append(f"- Tên công ty: {json1['Tên công ty']}")
+    text.append(f"- Lĩnh vực hoạt động: {json1['Lĩnh vực hoạt động']}")
+    text.append("- Sản phẩm chủ đạo:")
+    for line in json1['Sản phẩm chủ đạo'].split('\n'):
+        text.append(f"  {line}")
+    text.append(f"- Công ty mẹ / sở hữu: {json1['Công ty mẹ, công ty sở hữu']}")
+
+    text.append("\n📊 PHÂN TÍCH DOANH NGHIỆP")
+
+    # Good Points
+    text.append("\n✅ Điểm tốt:")
+    for line in json2['Điểm tốt'].split('\n'):
+        text.append(f"  {line}")
+
+    # Weaknesses
+    text.append("\n⚠️ Điểm yếu:")
+    for line in json2['Điểm yếu'].split('\n'):
+        text.append(f"  {line}")
+
+    # Risks
+    text.append("\n🚨 Rủi ro tiềm ẩn:")
+    for line in json2['Rủi ro tiềm ẩn'].split('\n'):
+        text.append(f"  {line}")
+
+    # Summary
+    text.append("\n🧾 TỔNG QUAN:")
+    for line in json2['Tổng quan'].split('\n'):
+        text.append(f"  {line}")
+
+    return '\n'.join(text)
+def risk_report_agent(bucket='testworkflow123', prefixs= ['info_crawl_agent/companyInfo.json', 'fin_agent/fin_data.json']):
+
+    
+    try:
+        # Step 1: Read company data
+        try:
+            company_data_raw = read_json_from_s3(bucket, prefixs[0])
+            if not company_data_raw:
+                raise ValueError("Company data not found.")
+            company_data = json.loads(company_data_raw)
+        except Exception as e:
+            return f"Error reading or parsing company info: {e}"
+
+        # Step 2: Read financial data
+        try:
+            fin_data_raw = read_json_from_s3(bucket, prefixs[1])
+            if not fin_data_raw:
+                raise ValueError("Financial data not found.")
+            fin_data = json.loads(fin_data_raw)
+        except Exception as e:
+            return f"Error reading or parsing financial info: {e}"
+
+        # Step 3: Generate input report for risk analysis
+        try:
+            report_data = generate_company_report(company_data, fin_data)
+        except Exception as e:
+            return f"Error generating company report: {e}"
+
+        # Step 4: Run risk analysis
+        try:
+            risk_data = analyze_company(report_data)
+        except Exception as e:
+            return f"Error analyzing risk data: {e}"
+
+        # Step 5: Upload to S3 (optional but catchable)
+        try:
+            upload_text_to_s3(bucket, 'content/risk_data.txt', risk_data)
+        except Exception as e:
+            print(f"Warning: Failed to upload risk data to S3: {e}")
+
+        return risk_data
+
+    except Exception as e:
+        return f"Unhandled error in risk_report_agent: {e}"
+
 if __name__ == "__main__":
-    analyst = RiskAnalyst()
-    company_input = """
-Tên công ty: CÔNG TY CỔ PHẦN NHỰA AN PHÁT XANH (An Phát Bioplastics)
-Ngành nghề/lĩnh vực kinh doanh: 
-- Sản xuất và kinh doanh các sản phẩm nhựa
-- Sản xuất bao bì nhựa, bao bì nhựa phân hủy sinh học
-- Sản xuất tấm sàn nhựa và hạt nhựa compound
-- Đầu tư và phát triển khu công nghiệp
-Sản phẩm hoặc dịch vụ chính của công ty:
-- Bao bì nhựa
-- Bao bì nhựa phân hủy sinh học
-- Tấm sàn nhựa SPC (xuất khẩu chính sang thị trường Mỹ)
-- Hạt nhựa compound
-- Phát triển khu công nghiệp (KCN Lương Điền Ngọc An)
-"""
-    result = analyst.analyze_company(company_input)
-    print(result)
+    output = risk_report_agent()
+    print(output)

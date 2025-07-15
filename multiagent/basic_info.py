@@ -18,7 +18,11 @@ import time
 from selenium.webdriver.support.ui import WebDriverWait
 from gnews import GNews
 import crawl
+from upload import upload_json_to_s3, upload_text_to_s3, read_json_from_s3
+import json
+from typing import List
 
+from dataclasses import dataclass, asdict
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
 
 # Load the .env file
@@ -27,42 +31,32 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 OPENAI_SECRET_KEY = os.getenv("OPENAI_API_KEY")
 
-# Define the company info model
-class CompanyInfo(BaseModel):
-    name: str
-    tax: str
-    webpage: str
-    email: str
-    phone: str
-    address: str
-    industry_field: str
-    lanhdao_hoidongquantri: str
-    parent_and_holding_company: str
+# Define the
 
-class CompanyInfoRetriever:
-    def __init__(self):
-        self.session = boto3.Session(
+session = boto3.Session(
             aws_access_key_id=AWS_ACCESS_KEY,
             aws_secret_access_key=AWS_SECRET_KEY,
             region_name = 'ap-southeast-1'
         )
 
-        self.boto_config = BotocoreConfig(
+boto_config = BotocoreConfig(
             retries={"max_attempts": 3, "mode": "standard"},
             connect_timeout=5,
             read_timeout=60
         )
 
-        self.model = BedrockModel(
+model = BedrockModel(
             model_id="arn:aws:bedrock:ap-southeast-1:389903776084:inference-profile/apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
-            boto_session=self.session,
+            boto_session=session,
             temperature=0.3,
             top_p=0.8,
-            # stop_sequences=["###", "END"],
+            stop_sequences=["###", "END"],
             # boto_client_config=self.boto_config,
         )
 
-        self.system_prompt = """
+def get_basic_info( query: str) -> str:
+    
+    system_prompt = """
 You are a helpful personal assistant specializing in searching, collecting, verifying, and analyzing information about companies.
 
 You can use the following tools:
@@ -104,19 +98,89 @@ Additional Requirements:
  Report the output in fluent Vietnamese, using a clean and consistent format as shown above
 
 """
-
-        self.agent = Agent(
+    agent = Agent(
             tools=[crawl.fetch_company_info, crawl.fetch_company_person, crawl.get_gg_news, crawl.get_gg_search, crawl.crawl_news],
-            model=self.model,
-            system_prompt=self.system_prompt,
+            model=model,
+            system_prompt=system_prompt,
         )
+    results =agent(query)
+    output = results.message.get('content', [])[0].get('text', '')
+    return output
 
-    def get_basic_info(self, query: str) -> str:
-        results = self.agent(query)
-        print(results.metrics)
-        output = results.message.get('content', [])[0].get('text', '')
-        return output
+class CongTyCrawl(BaseModel):
+    status: bool
+    error: str
+    content: str
+    ten_cty: str
+    linh_vuc_hoat_dong: str
+    sanpham: str
+    tap_doan_me_so_huu: str
+
+structure_agent= Agent(model = model)
+
+def company_crawl_agent(bucket='testworkflow123', prefix='info_agent/companyInfo.json'):
+    try:
+        # Step 1: Read data from S3
+        try:
+            data = read_json_from_s3(bucket=bucket, prefix=prefix)
+            if not data:
+                raise ValueError("No data found in S3.")
+        except Exception as e:
+            return f"Error reading JSON from S3: {e}"
+
+        # Step 2: Get basic company info
+        try:
+            company_info = get_basic_info(str(data))
+        except Exception as e:
+            return f"Error during company_info_agent processing: {e}"
+
+        # Step 3: Structure and validate data
+        try:
+            company_crawl_info = structure_agent.structured_output(CongTyCrawl, f"""
+Analyze and reorganize the data crawled from the company.
+
+Return status: False if the tool is missing field like Tên công ty, Mã số thuế, Ban lãnh đạo / Hội đồng quản trị, Lĩnh vực hoạt động
+
+Return error: the specific error or field missing
+
+Return the following structured fields:
+
+    ten_cty: the company name
+
+    linh_vuc_hoat_dong: the company’s main business area or industry
+
+    sanpham: the company’s primary products
+
+    tap_doan_me_so_huu: related entities, such as parent companies or subsidiaries
+base on this information:
+{company_info}
+""")
+            if not company_crawl_info.status:
+                return f"Error: {company_crawl_info.error}"
+        except Exception as e:
+            return f"Error structuring company crawl info: {e}"
+
+        # Step 4: Upload structured data to S3
+        try:
+            upload_json_to_s3(json.dumps({
+                "Tên công ty": company_crawl_info.ten_cty,
+                "Lĩnh vực hoạt động": company_crawl_info.linh_vuc_hoat_dong,
+                "Sản phẩm chủ đạo": company_crawl_info.sanpham,
+                "Công ty mẹ, công ty sở hữu": company_crawl_info.tap_doan_me_so_huu
+            }, ensure_ascii=False), bucket, 'info_crawl_agent/', 'companyInfo.json')
+        except Exception as e:
+            return f"Error uploading structured JSON to S3: {e}"
+
+        # Step 5: Upload raw info text to S3
+        try:
+            upload_text_to_s3(bucket, 'content/info_data.txt', company_info)
+        except Exception as e:
+            return f"Error uploading text info to S3: {e}"
+
+        return company_info
+
+    except Exception as e:
+        return f"Unhandled error in company_crawl_agent: {e}"
 
 if __name__=="__main__":
-    company_info_agent = CompanyInfoRetriever()
-    print(company_info_agent.get_basic_info("CÔNG TY CỔ PHẦN VIMC LOGISTICS"))
+    print(company_crawl_agent())

@@ -423,5 +423,5 @@ def get_gg_news(news: str):
 
 if __name__ == "__main__":
     company_name = "CÔNG TY CP An Phát"
-    print(get_gg_search(company_name))
+    print(fetch_company_info(company_name))
 
