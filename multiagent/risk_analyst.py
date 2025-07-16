@@ -60,7 +60,7 @@ You have access to the following tools:
 
     get_gg_news: Search for recent and relevant news articles about a company using Google News.
 
-    get_gg_search: Search for general web information using Google Search (e.g., official websites, financial data, business directories, government sites).
+    get_gg_search: Search for general web information using Google Search (e.g., official websites, financial data, business directories, government sites). Deep dive to research about same topic in 5-10 times and there is no result just return no information
 
     crawl_news: Extract and retrieve the full content of news articles given their URLs.
     
@@ -78,7 +78,7 @@ Your priority is accuracy and depth of insight, not speed. Only respond when eno
 """
 
     risk_agent = Agent(
-            tools=[get_gg_search, crawl_news],
+            tools=[get_gg_search, crawl_news, get_gg_news],
             model= model,
             system_prompt=system_prompt,
         )
@@ -128,11 +128,7 @@ def generate_company_report(json1: dict, json2: dict) -> str:
 def risk_report_agent( risk_problem = 'Tài chính'):
 
     try:
-        # Step 1: Read company data
-       
 
-
-        # Step 4: Run risk analysis
         try:
             risk_data = get_risk_data(risk_problem)
         except Exception as e:
@@ -178,15 +174,29 @@ Phân tích các thành viên {ban_ld} trong công ty {ten_cty}. Đưa ra mô h�
     taichinh = risk_report_agent(f"""
 Phân tích tình hình tài chính của công ty {ten_cty} dựa trên {fin_data} và tìm hiểu thêm về tình hình nợ với các ngân hàng bên ngoài hay về dòng tiền của công ty 
                                  """)
+    ruiro = risk_report_agent(f"""
+Phân tích tất các rủi ro khi cho {ten_cty} vay mượn. Bao gồm: 
+Rủi ro chiến lược (rủi ro về tầm nhìn công ty, rủi ro về cạnh tranh, rủi ro kinh doanh )
+Rủi ro hoạt động (rủi ro công bố thông tin, rủi ro về nguồn nhân lực, rủi ro bảo mật)
+Rủi ro luật định (những rủi ro liên quan đến chính sách, pháp luật).
+
+Phân tích giải pháp khả thi chó các rủi ro đó
+                                 """)
     
-    final = {
-        "Lịch sử hình thành": lsu,
-        "Sản phảm chủ đạo": sp_out,
-        'Mô hình quản lý': mohinh_quanly,
-        "Tài chính rủi ro": taichinh
-    }
-    upload_json_to_s3(json.dumps(final, ensure_ascii= False), 'bucket', 'content/risk_analyst/data.json')
-    return json.dumps(final, ensure_ascii= False)
+    final = f"""
+Lịch sử hình thành: {lsu}
+Sản phảm chủ đạo: {sp_out}
+Mô hình quản lý: {mohinh_quanly}
+Tài chính rủi ro: {taichinh}
+Rủi ro khác: {ruiro}
+    """
+    upload_text_to_s3(bucket, 'content/risk_analyst/lichsu.txt', lsu)
+    upload_text_to_s3(bucket, 'content/risk_analyst/spchuyeu.txt', sp_out)
+    upload_text_to_s3( bucket, 'content/risk_analyst/mohinhquanly.txt', mohinh_quanly)
+    upload_text_to_s3( bucket,  'content/risk_analyst/ruirotaichinh.txt', taichinh)
+    upload_text_to_s3(bucket, 'content/risk_analyst/ruiro.txt', ruiro)
+
+    return final
 
 
 

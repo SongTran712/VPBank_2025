@@ -7,6 +7,9 @@ from PIL import Image
 import requests
 import json
 from docx2pdf import convert
+from upload import download_and_insert_image_from_s3, download_and_insert_image_from_s3_to_paragraph, read_json_from_s3
+from strands import tool
+from chartool import get_chart_context
 
 def set_document_style(doc):
     style = doc.styles['Normal']
@@ -43,101 +46,160 @@ def create_table(doc, rows, cols, col_widths=None):
                 p.paragraph_format.space_after = 0
     return table
 
-def download_and_insert_image(doc, image_url, image_path="temp_image.png", width=Inches(5)):
-    try:
-        response = requests.get(image_url)
-        if response.status_code == 200:
-            image = Image.open(BytesIO(response.content))
-            image.save(image_path)
-            doc.add_picture(image_path, width=width)
-            print("✅ Ảnh đã được tải và chèn vào Word.")
-            return True
-        else:
-            print(f"❌ Lỗi tải ảnh từ URL: {response.status_code}")
-            return False
-    except Exception as e:
-        print("❌ Ảnh tải về không hợp lệ:", repr(e))
-        return False
+
 
 # Load data from JSON
-with open("totrinh.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
+from docx import Document
+from docx.shared import Inches
+from docx2pdf import convert
+import json
+from upload import get_image_context
 
-# Create document
-doc = Document()
-set_document_style(doc)
+@tool
+def create_to_trinh(data):
+    # Parse input if it's a JSON string
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            raise ValueError("Input is not valid JSON")
 
-# Title and sections
-add_centered_title(doc, "TỜ TRÌNH TÍN DỤNG KHDN")
-add_bold_heading(doc, "A. THÔNG TIN CHUNG", "FF0000")
-add_bold_heading(doc, "Mục đích Tờ trình tín dụng:")
-doc.add_paragraph("☒ Cấp tín dụng mới\n☐ Tái cấp tín dụng\n☐ Cấp tăng hạn mức")
-doc.add_paragraph("Theo các hình thức:")
-table = create_table(doc, 1, 2, [Inches(3), Inches(3)])
-table.cell(0, 0).text = "☒ Cấp hạn mức (HM) vay vốn\n☐ Cho vay theo món ngắn hạn\n☐ Cho vay theo món trung dài hạn"
+    doc = Document()
+    set_document_style(doc)
 
-# Customer information
-add_bold_heading(doc, "\n B. THÔNG TIN KHÁCH HÀNG", "FF0000")
-add_bold_heading(doc, "Thông tin chung về Khách hàng (KH):")
-doc.add_paragraph(data["customer"])
+    # Title and sections
+    add_centered_title(doc, "TỜ TRÌNH TÍN DỤNG KHDN")
 
-# Finance information (used throughout)
-add_bold_heading(doc, "Tóm tắt thông tin tài chính:")
-doc.add_paragraph(data["finance_information"])
-# # insert image
-# url = data["image_url"]
-# download_and_insert_image(doc, url)
+    add_bold_heading(doc, "A. THÔNG TIN CHUNG", "FF0000")
+    add_bold_heading(doc, "Mục đích Tờ trình tín dụng:")
+    doc.add_paragraph("☒ Cấp tín dụng mới\n☐ Tái cấp tín dụng\n☐ Cấp tăng hạn mức")
+    doc.add_paragraph("Theo các hình thức:")
+    table = create_table(doc, 1, 2, [Inches(8), Inches(10)])
+    table.cell(0, 0).text = "☒ Cấp hạn mức (HM) vay vốn\n☐ Cho vay theo món ngắn hạn\n☐ Cho vay theo món trung dài hạn"
 
-add_bold_heading(doc, "Nhu cầu cấp tín dụng của KH:")
-doc.add_paragraph(data["raw"])
+    # Customer information
+    add_bold_heading(doc, "\nB. THÔNG TIN KHÁCH HÀNG", "FF0000")
+    add_bold_heading(doc, "Thông tin chung về Khách hàng (KH):")
+    doc.add_paragraph(data.get("customer", "Không có thông tin khách hàng"))
 
-add_bold_heading(doc, "C. ĐÁNH GIÁ THÔNG TIN KHÁCH HÀNG", "FF0000")
-add_bold_heading(doc, "1. Đánh giá thông tin pháp lý và bộ máy tổ chức của doanh nghiệp:(BCTN)", "FF0000")
-doc.add_paragraph(data["raw"])
+    add_bold_heading(doc, "Tóm tắt thông tin tài chính:")
+    download_and_insert_image_from_s3(doc, 'testworkflow123', 'content/fin_analyst/fin_charts/', 'Bảng tài chính tổng hơp.png')
+    
+    add_bold_heading(doc, "Tín dụng đã cấp cho khách hàng:")
+    doc.add_picture('qhetaichinh.png', width=Inches(6))
 
-add_bold_heading(doc, "2. Đánh giá sản phẩm, dịch vụ và năng lực sản xuất, phân phối sản phẩm", "FF0000")
-doc.add_paragraph(data["raw"])
-
-add_bold_heading(doc, "3. Đánh giá thị trường(BCTN)", "FF0000")
-doc.add_paragraph(data["raw"])
+    # # Optional: Insert image if available
+    # url = data.get("image_url")
+    # if url:
+    #     download_and_insert_image(doc, url)
 
 
-add_bold_heading(doc, "4. Đánh giá tình hình tài chính", "FF0000")
-add_bold_heading(doc, "4.1 Thông tin Chung về báo cáo tài chính (BCTC):")
-add_bold_heading(doc, "BCTC KH cung cấp bao gồm:")
-table = create_table(doc, 2, 2)
-table.cell(0, 0).text = " ☐ Bảng cân đối kế toán"
-table.cell(0, 1).text = " ☐ Báo cáo lưu chuyển tiền tệ"
-table.cell(1, 0).text = " ☐ Báo cáo kết quả kinh doanh"
-table.cell(1, 1).text = " ☐ Thuyết minh Báo cáo tài chính"
+    # Customer Evaluation
+    add_bold_heading(doc, "C. ĐÁNH GIÁ THÔNG TIN KHÁCH HÀNG", "FF0000")
 
-p = doc.add_paragraph()
-p.add_run("\n - BCTC của khách hàng").bold = True
-p.add_run(" :  ☐ Được kiểm toán  ☐ Không được kiểm toán")
+    add_bold_heading(doc, "1. Đánh giá thông tin pháp lý và bộ máy tổ chức của doanh nghiệp (BCTN):", "FF0000")
+    
+    doc.add_paragraph(data.get("lich_su_phat_trien", ""))
 
-p = doc.add_paragraph()
-p.add_run("- Tên đơn vị kiểm toán ").bold = True
-p.add_run("(nếu có)").italic = True
-p.add_run(f" : {data['raw']}")
+    add_bold_heading(doc, "2. Cấu trúc Công Ty:", "FF0000")
+    doc.add_paragraph(data.get("ban_lanh_dao", ""))
 
-p = doc.add_paragraph()
-p.add_run("- Ý kiến của đơn vị kiểm toán ").bold = True
-p.add_run("(nếu có)").italic = True
-p.add_run(f" : {data['raw']}")
+    add_bold_heading(doc, "3. Đánh giá sản phẩm, dịch vụ và năng lực sản xuất, phân phối sản phẩm", "FF0000")
+    doc.add_paragraph(data.get("danh_gia_san_pham", ""))
 
-add_bold_heading(doc, "4.2 Đánh giá tổng quan về tình hình tài chính của Doanh nghiệp (xem thêm phụ lục 01 – file phân tích tài chính doanh nghiệp):")
-add_bold_heading(doc, "Đánh giá chất lượng, độ tin cậy thông tin tài chính:")
-doc.add_paragraph(data["raw"])
+    add_bold_heading(doc, "4. Đánh giá thị trường (BCTN)", "FF0000")
+    doc.add_paragraph(data.get("danh_gia_thi_truong", ""))
 
-add_bold_heading(doc, "Đánh giá tổng quan về cơ cấu tài sản, nguồn vốn và các chỉ số tài chính")
-doc.add_paragraph(data["raw"])
+    add_bold_heading(doc, "5. Đánh giá tình hình tài chính", "FF0000")
 
-add_bold_heading(doc, "Nhận xét chung:")
-doc.add_paragraph(data["raw"])
+    add_bold_heading(doc, "5.1 Thông tin chung về báo cáo tài chính (BCTC):")
+    doc.add_paragraph(data.get("danh_gia_kiem_toan", ""))
 
-add_bold_heading(doc, "D. RỦI RO VÀ CÁC BIỆN PHÁP KIỂM SOÁT RỦI RO", "FF0000")
-doc.add_paragraph(data["raw"])
+    add_bold_heading(doc, "5.2 Đánh giá tổng quan về tình hình tài chính của Doanh nghiệp:")
+    add_bold_heading(doc, "Đánh giá chất lượng, độ tin cậy thông tin tài chính:")
+    doc.add_paragraph(data.get("tinh_hinh_tai_chinh", ""))
+    
+    add_bold_heading(doc, "Chart Cơ Cấu Vốn, Cơ Cấu Tài Sản Nợ")
+    table = doc.add_table(rows=1, cols=2)
+    table.columns[0].width = Inches(3.5)
+    table.columns[1].width = Inches(3.5)
 
-# Save document
-doc.save("totrinh.docx")
-convert("totrinh.docx", "totrinh.pdf")
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Cơ cấu vốn.png',
+    paragraph=table.cell(0, 0).paragraphs[0],
+    width=Inches(3)
+)
+
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Cơ cấu tài sản nợ.png',
+    paragraph=table.cell(0, 1).paragraphs[0],
+    width=Inches(3)
+)
+    add_bold_heading(doc, "Chart Biên lợi nhuận và lợi nhuận, Phân tích lợi nhuận")
+
+    table = doc.add_table(rows=1, cols=2)
+    table.columns[0].width = Inches(3.5)
+    table.columns[1].width = Inches(3.5)
+
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Biên lợi nhuận và lợi nhuận.png',
+    paragraph=table.cell(0, 0).paragraphs[0],
+    width=Inches(3)
+)
+
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Phân tích lợi nhuận.png',
+    paragraph=table.cell(0, 1).paragraphs[0],
+    width=Inches(3)
+)
+    
+    add_bold_heading(doc, "Tài sản và hiệu quả sinh lời, Vốn chủ sở hữu và khả năng sinh lời")
+
+    table = doc.add_table(rows=1, cols=2)
+    table.columns[0].width = Inches(3.5)
+    table.columns[1].width = Inches(3.5)
+
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Tài sản và hiệu quả sinh lời.png',
+    paragraph=table.cell(0, 0).paragraphs[0],
+    width=Inches(3)
+)
+
+    download_and_insert_image_from_s3_to_paragraph(
+    'testworkflow123', 'content/fin_analyst/fin_charts/', 'Vốn chủ sở hữu và khả năng sinh lời.png',
+    paragraph=table.cell(0, 1).paragraphs[0],
+    width=Inches(3)
+)    
+    
+    add_bold_heading(doc, "6. Phân tích Rủi Ro:",  "FF0000")
+    # add_bold_heading(doc, "Đánh giá chất lượng, độ tin cậy thông tin tài chính:")
+    doc.add_paragraph(data.get("ruiro", ""))
+    
+    add_bold_heading(doc,"7. Kết luận: ", "FF0000")
+    doc.add_paragraph(data.get("ketluan",""))
+    
+    # Save document
+    doc_path = "totrinh.docx"
+    pdf_path = "totrinh.pdf"
+    doc.save(doc_path)
+    convert(doc_path, pdf_path)
+
+    return {
+        "message": "✅ Đã tạo thành công tờ trình tín dụng.",
+        "docx_path": doc_path,
+        "pdf_path": pdf_path
+    }
+
+if __name__ == "__main__":
+    create_to_trinh({
+    "customer": "CÔNG TY CỔ PHẦN VIMC LOGISTICS\nWebsite: Không có thông tin\nSố điện thoại: 04-35772047/48\nEmail: info@vimclogistics.vn\nMã số thuế: 0102345275\nNgười đại diện theo pháp luật: Bà Đinh Thị Việt Hà",
+    "lich_su_phat_trien": "Công ty VIMC Logistics được thành lập với mục đích cung cấp các dịch vụ logistics toàn diện, bao gồm vận tải đường bộ, đường sắt, và đường biển, cũng như dịch vụ xuất nhập khẩu và môi giới thương mại. Hiện nay, công ty không có thông tin cụ thể về tập đoàn mẹ hoặc cổ đông lớn.",
+    "ban_lanh_dao": "Cấu trúc tổ chức của công ty bao gồm:\n- Chủ tịch HĐQT: Ông Mai Lê Lợi\n- Thành viên HĐQT: Bà Dương Thu Hiền\n- Thành viên HĐQT: Ông Phan Nhân Hải\n- Thành viên HĐQT: Ông Nguyễn Quốc Cường\n- Thành viên HĐQT: Bà Đinh Thị Việt Hà\n- Phụ trách quản trị: Bà Vũ Thị Thanh Nhàn\n- Tổng Giám đốc: Bà Đinh Thị Việt Hà\n- Phó Tổng Giám đốc: Ông Phạm Bá Ngân",
+    "danh_gia_thi_truong": "Công ty VIMC Logistics hoạt động trong ngành logistics và vận tải, một lĩnh vực đang phát triển mạnh mẽ do nhu cầu giao thông vận tải ngày càng tăng. Thị trường này có nhiều cơ hội tăng trưởng nhưng cũng đối mặt với cạnh tranh cao từ các công ty lớn và nhỏ.",
+    "danh_gia_san_pham": "Công ty cung cấp dịch vụ logistics toàn diện, bao gồm vận tải đường bộ, đường sắt, và đường biển, cũng như dịch vụ xuất nhập khẩu và môi giới thương mại. Sản phẩm và dịch vụ của công ty có tính cạnh tranh cao do đội ngũ quản lý và nhân viên có kinh nghiệm, cùng với mạng lưới đối tác mạnh mẽ.",
+    "danh_gia_kiem_toan": "Tình trạng kiểm toán báo cáo tài chính của công ty hiện nay không có thông tin cụ thể về đơn vị kiểm toán và nội dung nổi bật của báo cáo.",
+    "tong_quan_tai_chinh": "Tổng quan tình hình tài chính của công ty VIMC Logistics hiện nay không có thông tin cụ thể. Cần tiếp tục theo dõi và cập nhật báo cáo tài chính để đánh giá chính xác."
+}
+
+
+)

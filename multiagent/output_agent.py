@@ -39,6 +39,13 @@ model = BedrockModel(
 
 
 system_prompt = """
+Bạn là 1 agent hỗ trợ trong việc hoàn thành tờ trình tín dụng, nhưng không nhất thiết phải điền thẳng mà thông qua các trường trong dữ liệu json.
+
+Dữ liệu JSON gồm các trường ứng với:
+{
+    "customer": chứa thông tin chung của khách hàng chứa tại 
+}
+
 
 """
 

@@ -294,21 +294,31 @@ async def _fetch_company_person(company_name):
 
 @tool
 def fetch_company_person(company_name: str):
+    loop = None
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            result = asyncio.ensure_future(_fetch_company_person(company_name))
-            # In some contexts (e.g. notebook or bot), await this outside
-            raise RuntimeError("Cannot fetch_company_person inside running event loop without await.")
-        else:
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                result = asyncio.ensure_future(_fetch_company_person(company_name))
+                raise RuntimeError("Cannot fetch_company_person inside running event loop without await.")
+        except RuntimeError:
+            # No running loop; create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             result = loop.run_until_complete(_fetch_company_person(company_name))
-
+        
         if result is None:
             raise ValueError(f"Không tìm thấy người đại diện cho '{company_name}'")
         return {"status": "success", "data": result}
+
     except Exception as e:
         logger.exception("Lỗi trong fetch_company_person:")
         return {"status": "error", "message": str(e)}
+    
+    finally:
+        # Close the loop if we created it
+        if loop and not loop.is_running():
+            loop.close()
 
 class Crawler(BaseModel):
     title: str
@@ -423,5 +433,5 @@ def get_gg_news(news: str):
 
 if __name__ == "__main__":
     company_name = "CÔNG TY CP An Phát"
-    print(fetch_company_info(company_name))
+    print(fetch_company_person(company_name))
 

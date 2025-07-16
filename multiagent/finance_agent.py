@@ -106,7 +106,6 @@ Report in Vietnamese with well structured and clearly.
 class TaiChinh(BaseModel):
     status: bool
     error: str
-    content: str
     thongso: str
     diemmanh: str
     diemyeu: str
