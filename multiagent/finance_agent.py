@@ -3,7 +3,7 @@
 import boto3
 from strands.models import BedrockModel
 from botocore.config import Config as BotocoreConfig
-from strands import Agent
+from strands import Agent, tool
 from dotenv import load_dotenv
 import os
 from upload import upload_folder_to_s3, upload_text_to_s3, upload_json_to_s3, read_json_from_s3
@@ -49,6 +49,7 @@ structure_model = BedrockModel(
         )
 
 
+@tool
 def get_finance_data(query: str) -> str:
     
     

@@ -3,7 +3,7 @@
 import boto3
 from strands.models import BedrockModel
 from botocore.config import Config as BotocoreConfig
-from strands import Agent
+from strands import Agent, tool
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
@@ -63,6 +63,7 @@ structure_model = BedrockModel(
             # boto_client_config=self.boto_config,
         )
 
+@tool
 def get_basic_info( query: str) -> str:
     
     system_prompt = """

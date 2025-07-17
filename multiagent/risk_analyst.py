@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import boto3
 from botocore.config import Config as BotocoreConfig
 from strands.models import BedrockModel
-from strands import Agent
+from strands import Agent, tool
 from gnews import GNews
 import json
 from upload import read_json_from_s3, upload_text_to_s3, upload_json_to_s3
@@ -50,7 +50,7 @@ structure_model = BedrockModel(
             # boto_client_config=self.boto_config,
         )
 
-
+@tool
 def get_risk_data(company_description: str) -> str:
     
     system_prompt = """
